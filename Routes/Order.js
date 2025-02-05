@@ -21,7 +21,7 @@ router.post('/placeorder', orderController.placeOrder);
 router.put('/update/status/:id', orderController.updateStatus);
 
 // Update payment status
-router.put('/update/payment/:id', orderController.updatePaymentStatus);
+router.put('/update/payment /:id', orderController.updatePaymentStatus);
 
 // Get order statistics
 router.get('/stats/overview', orderController.getOrderStats);
