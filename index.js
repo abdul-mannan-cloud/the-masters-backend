@@ -24,28 +24,28 @@ app.listen(port, () => {
     console.log(`App Listening at Port ${port}`)
 })
 
-const userRoutes = require('./Routes/User');
+const userRoutes = require('./routes/User');
 app.use('/admin', userRoutes);
 
-const clothRoutes = require('./Routes/Cloths')
+const clothRoutes = require('./routes/Cloths')
 app.use('/cloth', clothRoutes)
 
-const customerRoutes = require('./Routes/Customer');
+const customerRoutes = require('./routes/Customer');
 app.use('/customer', customerRoutes)
 
-const productRoutes = require('./Routes/Product');
+const productRoutes = require('./routes/Product');
 app.use('/product', productRoutes)
 
-const orderRoutes = require('./Routes/Order');
+const orderRoutes = require('./routes/Order');
 app.use('/order', orderRoutes)
 
-const employeeRoutes = require('./Routes/Employee');
+const employeeRoutes = require('./routes/Employee');
 app.use('/employee', employeeRoutes)
 
-const measurementRoutes = require('./Routes/Measurements');
+const measurementRoutes = require('./routes/Measurements');
 app.use('/measurement', measurementRoutes)
 
-const itemRoutes = require('./Routes/Items');
+const itemRoutes = require('./routes/Items');
 app.use('/items', itemRoutes)
 
 const DB = process.env.DATABASE_URL
