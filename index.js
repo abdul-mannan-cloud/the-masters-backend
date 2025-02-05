@@ -45,7 +45,7 @@ app.use('/employee', employeeRoutes)
 const measurementRoutes = require('./routes/Measurements');
 app.use('/measurement', measurementRoutes)
 
-const itemRoutes = require('./routes/Items');
+const itemRoutes = require('./routes/items');
 app.use('/items', itemRoutes)
 
 const DB = process.env.DATABASE_URL
