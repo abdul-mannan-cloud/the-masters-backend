@@ -1,4 +1,36 @@
+// models/Customer.js
 const mongoose = require('mongoose');
+
+const measurementFileSchema = new mongoose.Schema({
+    id: {
+        type: String,
+        required: true
+    },
+    name: {
+        type: String,
+        required: true
+    },
+    path: {
+        type: String,
+        required: true
+    },
+    url: {
+        type: String,
+        required: true
+    },
+    mimeType: {
+        type: String,
+        required: true
+    },
+    size: {
+        type: Number,
+        required: true
+    },
+    uploadDate: {
+        type: Date,
+        default: Date.now
+    }
+});
 
 const customerSchema = new mongoose.Schema({
     name: {
@@ -13,6 +45,12 @@ const customerSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    email: {
+        type: String
+    },
+    password: {
+        type: String
+    },
     measurements: {
         chest: Number,
         neck: Number,
@@ -22,9 +60,13 @@ const customerSchema = new mongoose.Schema({
         bottomLenght: Number,
         waist: Number
     },
+    measurementFiles: {
+        type: [measurementFileSchema],
+        default: []
+    },
     orders: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Order'
+        ref: 'Orders'
     }]
 }, {
     timestamps: true
