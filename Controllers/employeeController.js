@@ -1,4 +1,5 @@
 const Employee = require('../Models/Employee');
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const addEmployee = async (req, res) => {
     try {
@@ -29,8 +30,44 @@ const editEmployee = async (req, res) => {
 
 const getAllEmployees = async (req, res) => {
     try {
-        const employees = await Employee.find();
-        res.status(200).json(employees);
+        const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+        const query = (req.query.query || '').trim();
+
+        const filter = {};
+        if (query) {
+            const searchRegex = new RegExp(escapeRegex(query), 'i');
+            filter.$or = [
+                { name: searchRegex },
+                { phone: searchRegex },
+                { cnic: searchRegex },
+                { role: searchRegex }
+            ];
+        }
+
+        const skip = (page - 1) * limit;
+        const [employees, total] = await Promise.all([
+            Employee.find(filter)
+                .sort({ _id: -1 })
+                .skip(skip)
+                .limit(limit),
+            Employee.countDocuments(filter)
+        ]);
+
+        const totalPages = Math.ceil(total / limit) || 1;
+        res.status(200).json({
+            employees,
+            data: employees,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1
+            },
+            query
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
