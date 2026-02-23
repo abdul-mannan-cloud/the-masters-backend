@@ -5,9 +5,6 @@ const orderController = require('../Controllers/orderController');
 // Get all orders
 router.get('/getallorders', orderController.getAllOrders);
 
-// Get single order
-router.get('/:id', orderController.getOrderById);
-
 // Get customer orders
 router.get('/customer/:id', orderController.getCustomerOrders);
 
@@ -21,12 +18,15 @@ router.post('/placeorder', orderController.placeOrder);
 router.put('/update/status/:id', orderController.updateStatus);
 
 // Update payment status
-router.put('/update/payment /:id', orderController.updatePaymentStatus);
+router.put('/update/payment/:id', orderController.updatePaymentStatus);
 
 // Get order statistics
 router.get('/stats/overview', orderController.getOrderStats);
 
 // Delete order
 router.delete('/delete/:id', orderController.deleteOrder);
+
+// Get single order
+router.get('/:id', orderController.getOrderById);
 
 module.exports = router;
