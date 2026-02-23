@@ -1,14 +1,117 @@
 const Order = require('../Models/Order');
 const Customer = require('../Models/Customer');
 const Product = require('../Models/Product');
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const getPagination = (req) => {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+    const skip = (page - 1) * limit;
+    const query = (req.query.query || '').trim();
+    return { page, limit, skip, query };
+};
+
+const buildOrderSearchMatch = (query) => {
+    if (!query) return {};
+
+    const searchRegex = new RegExp(escapeRegex(query), 'i');
+    const numericQuery = Number(query);
+    const orConditions = [
+        { status: searchRegex },
+        { notes: searchRegex },
+        { 'customerData.name': searchRegex },
+        { 'customerData.phone': searchRegex },
+        { 'productsData.type': searchRegex },
+        { 'productsData.instructions': searchRegex },
+        { 'productsData.options.name': searchRegex },
+        { 'productsData.options.customization': searchRegex }
+    ];
+
+    if (!Number.isNaN(numericQuery)) {
+        orConditions.push({ total: numericQuery });
+    }
+
+    return { $or: orConditions };
+};
 
 exports.getAllOrders = async (req, res) => {
     try {
-        const orders = await Order.find()
-            .populate('customer', 'name phone')
-            .populate('products')
-            .sort({ date: -1 });
-        res.status(200).json(orders);
+        const { page, limit, skip, query } = getPagination(req);
+
+        const pipeline = [
+            {
+                $lookup: {
+                    from: 'customers',
+                    localField: 'customer',
+                    foreignField: '_id',
+                    as: 'customerData'
+                }
+            },
+            {
+                $unwind: {
+                    path: '$customerData',
+                    preserveNullAndEmptyArrays: true
+                }
+            },
+            {
+                $lookup: {
+                    from: 'products',
+                    localField: 'products',
+                    foreignField: '_id',
+                    as: 'productsData'
+                }
+            },
+            {
+                $match: buildOrderSearchMatch(query)
+            },
+            { $sort: { date: -1 } },
+            {
+                $facet: {
+                    data: [
+                        { $skip: skip },
+                        { $limit: limit },
+                        {
+                            $project: {
+                                customer: {
+                                    _id: '$customerData._id',
+                                    name: '$customerData.name',
+                                    phone: '$customerData.phone'
+                                },
+                                products: '$productsData',
+                                date: 1,
+                                total: 1,
+                                status: 1,
+                                paid: 1,
+                                notes: 1,
+                                lastUpdated: 1,
+                                createdAt: 1,
+                                updatedAt: 1
+                            }
+                        }
+                    ],
+                    metadata: [{ $count: 'total' }]
+                }
+            }
+        ];
+
+        const [result] = await Order.aggregate(pipeline);
+        const orders = result?.data || [];
+        const total = result?.metadata?.[0]?.total || 0;
+        const totalPages = Math.ceil(total / limit) || 1;
+
+        res.status(200).json({
+            orders,
+            data: orders,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1
+            },
+            query
+        });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching orders', error: error.message });
     }
@@ -32,10 +135,45 @@ exports.getOrderById = async (req, res) => {
 
 exports.getCustomerOrders = async (req, res) => {
     try {
-        const orders = await Order.find({ customer: req.params.id })
-            .populate('products')
-            .sort({ date: -1 });
-        res.status(200).json(orders);
+        const { page, limit, skip, query } = getPagination(req);
+        const customerId = req.params.id;
+
+        const baseMatch = { customer: customerId };
+        if (query) {
+            const searchRegex = new RegExp(escapeRegex(query), 'i');
+            const numericQuery = Number(query);
+            baseMatch.$or = [
+                { status: searchRegex },
+                { notes: searchRegex }
+            ];
+            if (!Number.isNaN(numericQuery)) {
+                baseMatch.$or.push({ total: numericQuery });
+            }
+        }
+
+        const [orders, total] = await Promise.all([
+            Order.find(baseMatch)
+                .populate('products')
+                .sort({ date: -1 })
+                .skip(skip)
+                .limit(limit),
+            Order.countDocuments(baseMatch)
+        ]);
+
+        const totalPages = Math.ceil(total / limit) || 1;
+        res.status(200).json({
+            orders,
+            data: orders,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1
+            },
+            query
+        });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching customer orders', error: error.message });
     }

@@ -1,4 +1,6 @@
 const Customer = require('../Models/Customer');
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
@@ -59,9 +61,44 @@ const addCustomer = async (req, res) => {
 
 const getAllCustomers = async (req, res) => {
     try {
-        const customers = await Customer.find()
-            .sort({ createdAt: -1 }); // Most recent first
-        res.status(200).json({ customer: customers });
+        const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
+        const query = (req.query.query || '').trim();
+
+        const filter = {};
+        if (query) {
+            const searchRegex = new RegExp(escapeRegex(query), 'i');
+            filter.$or = [
+                { name: searchRegex },
+                { phone: searchRegex },
+                { address: searchRegex },
+                { email: searchRegex }
+            ];
+        }
+
+        const skip = (page - 1) * limit;
+        const [customers, total] = await Promise.all([
+            Customer.find(filter)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Customer.countDocuments(filter)
+        ]);
+
+        const totalPages = Math.ceil(total / limit) || 1;
+        res.status(200).json({
+            customer: customers,
+            data: customers,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1
+            },
+            query
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
