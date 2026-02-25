@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {addCustomer, getCustomer,updateCustomer,getAllCustomers,deleteCustomer, uploadMeasurementFiles,
+const {addCustomer, getCustomer, getNextOrderNumber, updateCustomer,getAllCustomers,deleteCustomer, uploadMeasurementFiles,
     removeMeasurementFile
 } = require('../Controllers/customerController');
 const customerController = require('../Controllers/customerController');
@@ -8,6 +8,7 @@ const customerController = require('../Controllers/customerController');
 
 router.post('/add', addCustomer);
 router.get('/getallcustomers', getAllCustomers);
+router.get('/next-order-number', getNextOrderNumber);
 router.get('/get/:id', getCustomer);
 router.put('/update/:id', updateCustomer);
 router.delete('/delete/:id', deleteCustomer);

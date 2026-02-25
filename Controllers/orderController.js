@@ -3,6 +3,47 @@ const Customer = require('../Models/Customer');
 const Product = require('../Models/Product');
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const normalizePhoneForWhatsApp = (phone = '') => {
+    const raw = String(phone || '').trim().replace(/[\s()-]/g, '');
+    if (!raw) return '';
+
+    if (raw.startsWith('+')) {
+        return `+${raw.slice(1).replace(/\D/g, '')}`;
+    }
+
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+
+    if (digits.startsWith('92')) return `+${digits}`;
+    if (digits.startsWith('0')) return `+92${digits.slice(1)}`;
+    if (digits.length === 10 && digits.startsWith('3')) return `+92${digits}`;
+
+    return `+${digits}`;
+};
+
+const buildReadyForPickupMessage = ({ customerName, orderId, customerOrderNumber, products, total, paid }) => {
+    const productsText = (products || [])
+        .map((p, idx) => `${idx + 1}. ${p?.type || 'Item'}${p?.price ? ` - Rs ${p.price}` : ''}`)
+        .join('\n');
+
+    const paymentText = paid ? 'Paid' : `Pending (Rs ${Number(total || 0)})`;
+    const readableOrderNumber = customerOrderNumber || orderId;
+
+    return [
+        `Assalam o Alaikum ${customerName || 'Customer'},`,
+        '',
+        `Your order is ready for pickup.`,
+        `Order Number: ${readableOrderNumber}`,
+        '',
+        'Items:',
+        productsText || '1. Custom order item',
+        '',
+        `Payment: ${paymentText}`,
+        '',
+        'Please collect it from the shop. Thank you.'
+    ].join('\n');
+};
+
 const getPagination = (req) => {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 200);
@@ -339,5 +380,87 @@ exports.getOrdersToday = async (req, res) => {
         res.status(200).json(orders);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching today\'s orders', error: error.message });
+    }
+};
+
+exports.sendReadyWhatsAppMessage = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const order = await Order.findById(id)
+            .populate('customer')
+            .populate('products');
+
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        if (!order.customer || !order.customer.phone) {
+            return res.status(400).json({ message: 'Customer phone number is missing for this order' });
+        }
+
+        const WA_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
+        const WA_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+        const WA_API_VERSION = process.env.WHATSAPP_API_VERSION || 'v21.0';
+
+        if (!WA_TOKEN || !WA_PHONE_NUMBER_ID) {
+            return res.status(500).json({
+                message: 'WhatsApp API is not configured',
+                missing: [
+                    !WA_TOKEN ? 'WHATSAPP_ACCESS_TOKEN' : null,
+                    !WA_PHONE_NUMBER_ID ? 'WHATSAPP_PHONE_NUMBER_ID' : null
+                ].filter(Boolean)
+            });
+        }
+
+        const to = normalizePhoneForWhatsApp(order.customer.phone);
+        if (!to) {
+            return res.status(400).json({ message: 'Invalid customer phone number format' });
+        }
+
+        const generatedMessage = buildReadyForPickupMessage({
+            customerName: order.customer.name,
+            orderId: String(order._id),
+            customerOrderNumber: order.customer.orderNumber,
+            products: order.products,
+            total: order.total,
+            paid: order.paid
+        });
+
+        const customMessage = String(req.body?.message || '').trim();
+        const messageToSend = customMessage || generatedMessage;
+
+        const apiUrl = `https://graph.facebook.com/${WA_API_VERSION}/${WA_PHONE_NUMBER_ID}/messages`;
+        const payload = {
+            messaging_product: 'whatsapp',
+            to: to.replace('+', ''),
+            type: 'text',
+            text: { body: messageToSend }
+        };
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${WA_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            return res.status(response.status).json({
+                message: 'Failed to send WhatsApp message',
+                error: data
+            });
+        }
+
+        return res.status(200).json({
+            message: 'WhatsApp message sent successfully',
+            to,
+            orderId: order._id,
+            whatsappResponse: data
+        });
+    } catch (error) {
+        return res.status(500).json({ message: 'Error sending WhatsApp message', error: error.message });
     }
 };

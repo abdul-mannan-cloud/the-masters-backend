@@ -25,11 +25,38 @@ function decodeXmlEntities(value) {
 }
 
 function readZipEntry(zipPath, entryPath) {
-  return execFileSync("unzip", ["-p", zipPath, entryPath], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 100 * 1024 * 1024,
-  });
+  try {
+    return execFileSync("unzip", ["-p", zipPath, entryPath], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 100 * 1024 * 1024,
+    });
+  } catch (error) {
+    // Windows environments often do not have `unzip` installed.
+    const escapedZipPath = zipPath.replace(/'/g, "''");
+    const escapedEntryPath = entryPath.replace(/'/g, "''");
+    const psScript = [
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+      `$zip = [System.IO.Compression.ZipFile]::OpenRead('${escapedZipPath}')`,
+      `$entry = $zip.GetEntry('${escapedEntryPath}')`,
+      "if (-not $entry) { $zip.Dispose(); throw 'Zip entry not found' }",
+      "$reader = New-Object System.IO.StreamReader($entry.Open())",
+      "$content = $reader.ReadToEnd()",
+      "$reader.Close()",
+      "$zip.Dispose()",
+      "Write-Output $content",
+    ].join("; ");
+
+    return execFileSync(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-Command", psScript],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 100 * 1024 * 1024,
+      }
+    );
+  }
 }
 
 function parseSharedStrings(sharedXml) {
@@ -103,6 +130,33 @@ function parseWorksheetRows(sheetXml, sharedStrings) {
   return rows;
 }
 
+function normalizePhone(rawPhone) {
+  const value = String(rawPhone || "").trim();
+  if (!value) return "";
+
+  const compact = value.replace(/[\s()-]/g, "");
+
+  if (compact.startsWith("+")) {
+    return `+${compact.slice(1).replace(/\D/g, "")}`;
+  }
+
+  const digits = compact.replace(/\D/g, "");
+  if (!digits) return "";
+
+  // Common PK number shape from Excel numeric cells: 10 digits starting with 3.
+  // Convert to local format with leading zero.
+  if (digits.length === 10 && digits.startsWith("3")) {
+    return `0${digits}`;
+  }
+
+  // If country code is present without '+', normalize to +92...
+  if (digits.startsWith("92")) {
+    return `+${digits}`;
+  }
+
+  return digits;
+}
+
 function buildOps(rows) {
   const ops = [];
   let skipped = 0;
@@ -112,9 +166,10 @@ function buildOps(rows) {
     const rowNumber = entry.rowNum || 0;
     if (rowNumber === 1) continue;
 
+    const orderNumber = (entry.row.A || "").trim();
     const name = (entry.row.B || "").trim();
-    const phone1 = (entry.row.C || "").trim();
-    const phone2 = (entry.row.D || "").trim();
+    const phone1 = normalizePhone(entry.row.C);
+    const phone2 = normalizePhone(entry.row.D);
 
     if (!name || !phone1) {
       skipped += 1;
@@ -127,9 +182,12 @@ function buildOps(rows) {
       updateOne: {
         filter: { name, phone: phone1 },
         update: {
+          $set: {
+            orderNumber,
+            phone: phone1,
+          },
           $setOnInsert: {
             name,
-            phone: phone1,
             address: DEFAULT_ADDRESS,
           },
         },

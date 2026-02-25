@@ -26,6 +26,9 @@ router.get('/stats/overview', orderController.getOrderStats);
 // Delete order
 router.delete('/delete/:id', orderController.deleteOrder);
 
+// Send "ready for pickup" WhatsApp message for an order
+router.post('/:id/notify-whatsapp-ready', orderController.sendReadyWhatsAppMessage);
+
 // Get single order
 router.get('/:id', orderController.getOrderById);
 

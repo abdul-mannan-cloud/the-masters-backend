@@ -33,6 +33,10 @@ const measurementFileSchema = new mongoose.Schema({
 });
 
 const customerSchema = new mongoose.Schema({
+    orderNumber: {
+        type: String,
+        trim: true
+    },
     name: {
         type: String,
         required: true
@@ -71,5 +75,15 @@ const customerSchema = new mongoose.Schema({
 }, {
     timestamps: true
 });
+
+customerSchema.index(
+    { orderNumber: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            orderNumber: { $exists: true, $type: 'string', $ne: '' }
+        }
+    }
+);
 
 module.exports = mongoose.model('Customer', customerSchema);
