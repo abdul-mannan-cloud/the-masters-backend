@@ -48,6 +48,9 @@ app.use('/measurement', measurementRoutes)
 const itemRoutes = require('./routes/items');
 app.use('/items', itemRoutes)
 
+const searchRoutes = require('./routes/search');
+app.use('/search', searchRoutes)
+
 const DB = process.env.DATABASE_URL
 
 mongoose.connect(DB, {
