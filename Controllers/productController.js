@@ -57,40 +57,48 @@ const addProduct = async (req, res) => {
 
 const assignEmployees = async (req, res) => {
     try {
-        const { employeeIds, productId } = req.body;
+        const { employeeIds, productId, rate, rates } = req.body;
 
-        // Validate inputs
         if (!employeeIds || !employeeIds.length || !productId) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // Find all employees
+        const resolveRate = (employeeId) => {
+            const raw = rates && Object.prototype.hasOwnProperty.call(rates, employeeId)
+                ? rates[employeeId]
+                : rate;
+            const value = Number(raw);
+            return Number.isFinite(value) && value >= 0 ? value : null;
+        };
+
+        const invalidRateFor = employeeIds.find((id) => resolveRate(id) === null);
+        if (invalidRateFor) {
+            return res.status(400).json({
+                error: `Missing or invalid rate for employee ${invalidRateFor}. Provide "rate" (applied to all) or "rates" map keyed by employeeId.`
+            });
+        }
+
         const employees = await Promise.all(
             employeeIds.map(empId => Employee.findById(empId))
         );
 
-        // Validate all employees exist
         if (employees.some(emp => !emp)) {
             return res.status(404).json({ error: 'One or more employees not found' });
         }
 
-        // Find and update the product
         const product = await Product.findById(productId);
         if (!product) {
             return res.status(404).json({ error: 'Product not found' });
         }
 
-        // Update product
         product.assignedEmployees = employees;
         product.status = 'in progress';
         await product.save();
 
-        // Update each employee
         await Promise.all(employees.map(async (emp) => {
-            // Add product to employee's products array if not already there
             if (!emp.products.includes(productId)) {
                 emp.products.push(product);
-                emp.payment = emp.payment + 500; // Adding payment for each employee
+                emp.payment = emp.payment + resolveRate(String(emp._id));
                 await emp.save();
             }
         }));

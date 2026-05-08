@@ -29,6 +29,9 @@ router.delete('/delete/:id', orderController.deleteOrder);
 // Send "ready for pickup" WhatsApp message for an order
 router.post('/:id/notify-whatsapp-ready', orderController.sendReadyWhatsAppMessage);
 
+// Send "order_update" WhatsApp template message (used when order is completed)
+router.post('/:id/notify-whatsapp-update', orderController.sendOrderUpdateWhatsApp);
+
 // Get single order
 router.get('/:id', orderController.getOrderById);
 
