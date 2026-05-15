@@ -32,6 +32,9 @@ router.post('/:id/notify-whatsapp-ready', orderController.sendReadyWhatsAppMessa
 // Send "order_update" WhatsApp template message (used when order is completed)
 router.post('/:id/notify-whatsapp-update', orderController.sendOrderUpdateWhatsApp);
 
+// Bulk-send "order_update" WhatsApp template to multiple customers
+router.post('/bulk/notify-whatsapp-update', orderController.bulkSendOrderUpdateWhatsApp);
+
 // Get single order
 router.get('/:id', orderController.getOrderById);
 

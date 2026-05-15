@@ -34,6 +34,16 @@ const orderSchema = mongoose.Schema({
     notes: {
         type: String
     },
+    whatsappUpdateSent: {
+        type: Boolean,
+        default: false
+    },
+    whatsappUpdateSentAt: {
+        type: Date
+    },
+    whatsappMessageId: {
+        type: String
+    },
     lastUpdated: {
         type: Date,
         default: Date.now
