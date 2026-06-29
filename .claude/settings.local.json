@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check /Users/abdulmannan/WebstormProjects/the-masters-backend/Controllers/orderController.js)",
+      "Bash(node --check /Users/abdulmannan/WebstormProjects/the-masters-backend/Models/Order.js)",
+      "Bash(node --check /Users/abdulmannan/WebstormProjects/the-masters-backend/routes/Order.js)"
+    ]
+  }
+}
