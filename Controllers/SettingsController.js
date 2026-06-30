@@ -1,4 +1,4 @@
-import Settings from "./Settings.js";
+import Settings from "../Models/Settings.js";
 
 export const getSettings = async (req, res) => {};
 

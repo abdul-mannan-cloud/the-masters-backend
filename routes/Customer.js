@@ -1,27 +1,18 @@
-const express = require('express');
-const router = express.Router();
-const {addCustomer, getCustomer, getNextOrderNumber, updateCustomer,getAllCustomers,deleteCustomer, uploadMeasurementFiles,
-    removeMeasurementFile
-} = require('../Controllers/customerController');
-const customerController = require('../Controllers/customerController');
+import { Router } from "express";
+import {
+  getAllCustomers,
+  getCustomerById,
+  createCustomer,
+  updateCustomer,
+  deleteCustomer,
+} from "../Controllers/CustomerController.js";
 
+const router = Router();
 
-router.post('/add', addCustomer);
-router.get('/getallcustomers', getAllCustomers);
-router.get('/next-order-number', getNextOrderNumber);
-router.get('/get/:id', getCustomer);
-router.put('/update/:id', updateCustomer);
-router.delete('/delete/:id', deleteCustomer);
+router.get("/", getAllCustomers);
+router.get("/:id", getCustomerById);
+router.post("/", createCustomer);
+router.put("/:id", updateCustomer);
+router.delete("/:id", deleteCustomer);
 
-router.post(
-    '/upload-measurement-files',
-    customerController.upload.array('files', 5), // Limit to 5 files per upload
-    uploadMeasurementFiles
-);
-
-router.delete(
-    '/remove-measurement-file/:fileId',
-    removeMeasurementFile
-);
-
-module.exports = router;
+export default router;

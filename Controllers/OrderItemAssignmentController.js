@@ -1,4 +1,4 @@
-import OrderItemAssignment from "./OrderItemAssignment.js";
+import OrderItemAssignment from "../Models/OrderItemAssignment.js";
 
 export const getAllOrderItemAssignments = async (req, res) => {};
 

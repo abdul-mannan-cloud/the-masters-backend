@@ -1,61 +1,68 @@
-const express = require("express");
-const mongoose = require("mongoose");
-const bodyParser = require("body-parser");
+import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 
-const app = express();
-const multer = require("multer");
-const cors = require("cors");
-const path = require("path");
-app.use("/assets", express.static(path.join(__dirname, "public/assets")));
-app.use(cors());
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(bodyParser.json());
-
-const dotenv = require("dotenv");
+import userRoutes from "./routes/User.js";
+// import clothRoutes from "./routes/Cloths.js";
+// import customerRoutes from "./routes/Customer.js";
+// import productRoutes from "./routes/Product.js";
+// import orderRoutes from "./routes/Order.js";
+// import employeeRoutes from "./routes/Employee.js";
+// import measurementRoutes from "./routes/Measurements.js";
+// import itemRoutes from "./routes/items.js";
+// import searchRoutes from "./routes/search.js";
+// import notificationRoutes from "./routes/Notification.js";
+// import orderItemRoutes from "./routes/OrderItem.js";
+// import orderItemAssignmentRoutes from "./routes/OrderItemAssignment.js";
+// import paymentRoutes from "./routes/Payment.js";
+// import productTypeRoutes from "./routes/ProductType.js";
+// import settingsRoutes from "./routes/Settings.js";
+// import tenantRoutes from "./routes/Tenant.js";
 
 dotenv.config();
 
-const port = process.env.PORT || 3001;
-app.listen(port, () => {
-  console.log(`App Listening at Port ${port}`);
-});
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const userRoutes = require("./routes/User");
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use("/assets", express.static(path.join(__dirname, "public/assets")));
+
 app.use("/admin", userRoutes);
-
-const clothRoutes = require("./routes/Cloths");
-app.use("/cloth", clothRoutes);
-
-const customerRoutes = require("./routes/Customer");
-app.use("/customer", customerRoutes);
-
-const productRoutes = require("./routes/Product");
-app.use("/product", productRoutes);
-
-const orderRoutes = require("./routes/Order");
-app.use("/order", orderRoutes);
-
-const employeeRoutes = require("./routes/Employee");
-app.use("/employee", employeeRoutes);
-
-const measurementRoutes = require("./routes/Measurements");
-app.use("/measurement", measurementRoutes);
-
-const itemRoutes = require("./routes/items");
-app.use("/items", itemRoutes);
-
-const searchRoutes = require("./routes/search");
-app.use("/search", searchRoutes);
+// app.use("/cloth", clothRoutes);
+// app.use("/customer", customerRoutes);
+// app.use("/product", productRoutes);
+// app.use("/order", orderRoutes);
+// app.use("/employee", employeeRoutes);
+// app.use("/measurement", measurementRoutes);
+// app.use("/items", itemRoutes);
+// app.use("/search", searchRoutes);
+// app.use("/notification", notificationRoutes);
+// app.use("/order-item", orderItemRoutes);
+// app.use("/order-item-assignment", orderItemAssignmentRoutes);
+// app.use("/payment", paymentRoutes);
+// app.use("/product-type", productTypeRoutes);
+// app.use("/settings", settingsRoutes);
+// app.use("/tenant", tenantRoutes);
 
 const DB = process.env.MONGO_URI || "mongodb://localhost:27017/digitalTailor";
+const port = process.env.PORT || 3001;
 
 mongoose
   .connect(DB, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log("Database connected"))
+  .then(() => {
+    console.log("Database connected");
+    app.listen(port, () => {
+      console.log(`App Listening at Port ${port}`);
+    });
+  })
   .catch((error) => console.log(error.message));

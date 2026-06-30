@@ -1,89 +1,47 @@
-// models/Customer.js
-const mongoose = require('mongoose');
-
-const measurementFileSchema = new mongoose.Schema({
-    id: {
-        type: String,
-        required: true
+import mongoose from "mongoose";
+const customerSchema = new mongoose.Schema(
+  {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
     },
     name: {
-        type: String,
-        required: true
-    },
-    path: {
-        type: String,
-        required: true
-    },
-    url: {
-        type: String,
-        required: true
-    },
-    mimeType: {
-        type: String,
-        required: true
-    },
-    size: {
-        type: Number,
-        required: true
-    },
-    uploadDate: {
-        type: Date,
-        default: Date.now
-    }
-});
-
-const customerSchema = new mongoose.Schema({
-    orderNumber: {
-        type: String,
-        trim: true
-    },
-    name: {
-        type: String,
-        required: true
+      type: String,
+      required: true,
+      trim: true,
     },
     phone: {
-        type: String,
-        required: true
+      type: String,
+      required: true,
+      trim: true,
     },
     address: {
-        type: String,
-        required: true
+      type: String,
+      trim: true,
     },
     email: {
-        type: String
+      type: String,
+      trim: true,
+      lowercase: true,
     },
-    password: {
-        type: String
+    gender: {
+      type: String,
+      enum: ["male", "female"],
+      default: null,
     },
-    measurements: {
-        chest: Number,
-        neck: Number,
-        shoulders: Number,
-        sleeves: Number,
-        topLenght: Number,
-        bottomLenght: Number,
-        waist: Number
+    notes: {
+      type: String,
+      trim: true,
     },
-    measurementFiles: {
-        type: [measurementFileSchema],
-        default: []
-    },
-    orders: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Orders'
-    }]
-}, {
-    timestamps: true
-});
-
-customerSchema.index(
-    { orderNumber: 1 },
-    {
-        unique: true,
-        partialFilterExpression: {
-            orderNumber: { $exists: true, $type: 'string', $ne: '' }
-        }
-    }
+  },
+  { timestamps: true },
 );
 
-module.exports = mongoose.model('Customer', customerSchema);
+// A customer's phone is unique within one shop, not across all shops
+customerSchema.index({ tenantId: 1, phone: 1 }, { unique: true });
+
+// Name search within a tenant's customer list
+customerSchema.index({ tenantId: 1, name: 1 });
+
+export default mongoose.model("Customer", customerSchema);

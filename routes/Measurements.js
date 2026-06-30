@@ -1,9 +1,18 @@
-const express = require('express');
-const router = express.Router();
-const {getMeasurement,updateMeasurement} = require('../Controllers/measurementController');
+import { Router } from "express";
+import {
+  getAllMeasurements,
+  getMeasurementById,
+  createMeasurement,
+  updateMeasurement,
+  deleteMeasurement,
+} from "../Controllers/MeasurementController.js";
 
-router.get('/getmeasurement/:id', getMeasurement);
-router.put('/updatemeasurement/:id', updateMeasurement)
+const router = Router();
 
+router.get("/", getAllMeasurements);
+router.get("/:id", getMeasurementById);
+router.post("/", createMeasurement);
+router.put("/:id", updateMeasurement);
+router.delete("/:id", deleteMeasurement);
 
-module.exports = router;
+export default router;

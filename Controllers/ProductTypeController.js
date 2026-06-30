@@ -1,4 +1,4 @@
-import ProductType from "./ProductType.js";
+import ProductType from "../Models/ProductType.js";
 
 export const getAllProductTypes = async (req, res) => {};
 

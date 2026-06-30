@@ -6,7 +6,8 @@ const Customer = require("../Models/Customer");
 
 dotenv.config();
 
-const DB_URL = process.env.DATABASE_URL;
+const DB_URL =
+  process.env.Mongo_URI || "mongodb://localhost:27017/digitalTailor";
 const FILE_PATH = path.resolve(process.cwd(), "TM.xlsx");
 const DEFAULT_ADDRESS =
   process.env.IMPORT_DEFAULT_ADDRESS || "Address not provided";
@@ -54,7 +55,7 @@ function readZipEntry(zipPath, entryPath) {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: 100 * 1024 * 1024,
-      }
+      },
     );
   }
 }
@@ -91,7 +92,9 @@ function parseCell(cellXml, sharedStrings) {
 
   let value = "";
   const vMatch = cellXml.match(/<v>([\s\S]*?)<\/v>/);
-  const inlineMatch = cellXml.match(/<is>[\s\S]*?<t(?:\s[^>]*)?>([\s\S]*?)<\/t>[\s\S]*?<\/is>/);
+  const inlineMatch = cellXml.match(
+    /<is>[\s\S]*?<t(?:\s[^>]*)?>([\s\S]*?)<\/t>[\s\S]*?<\/is>/,
+  );
 
   if (type === "s" && vMatch) {
     const index = Number(vMatch[1]);
@@ -202,7 +205,7 @@ function buildOps(rows) {
 async function run() {
   if (!DB_URL) {
     throw new Error(
-      "DATABASE_URL is missing in .env. Add it before running this import."
+      "DATABASE_URL is missing in .env. Add it before running this import.",
     );
   }
 
