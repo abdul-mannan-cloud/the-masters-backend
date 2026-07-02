@@ -3,10 +3,11 @@ import {
   getSettings,
   updateSettings,
 } from "../Controllers/SettingsController.js";
+import authentication from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-router.get("/", getSettings);
-router.put("/", updateSettings);
+router.get("/", authentication(), getSettings);
+router.put("/", authentication("tenant_admin", "manager"), updateSettings);
 
 export default router;

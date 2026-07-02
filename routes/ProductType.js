@@ -6,13 +6,14 @@ import {
   updateProductType,
   deleteProductType,
 } from "../Controllers/ProductTypeController.js";
+import authentication from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-router.get("/", getAllProductTypes);
-router.get("/:id", getProductTypeById);
-router.post("/", createProductType);
-router.put("/:id", updateProductType);
-router.delete("/:id", deleteProductType);
+router.get("/", authentication(), getAllProductTypes);
+router.get("/:id", authentication(), getProductTypeById);
+router.post("/", authentication("tenant_admin", "manager"), createProductType);
+router.put("/:id", authentication("tenant_admin", "manager"), updateProductType);
+router.delete("/:id", authentication("tenant_admin", "manager"), deleteProductType);
 
 export default router;

@@ -6,13 +6,14 @@ import {
   updateMeasurement,
   deleteMeasurement,
 } from "../Controllers/MeasurementController.js";
+import authentication from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-router.get("/", getAllMeasurements);
-router.get("/:id", getMeasurementById);
-router.post("/", createMeasurement);
-router.put("/:id", updateMeasurement);
-router.delete("/:id", deleteMeasurement);
+router.get("/", authentication(), getAllMeasurements);
+router.get("/:id", authentication(), getMeasurementById);
+router.post("/", authentication("tenant_admin", "manager", "employee"), createMeasurement);
+router.put("/:id", authentication("tenant_admin", "manager", "employee"), updateMeasurement);
+router.delete("/:id", authentication("tenant_admin", "manager"), deleteMeasurement);
 
 export default router;

@@ -1,6 +1,8 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../Models/User.js";
+import dotenv from "dotenv";
+dotenv.config();
 
 const signup = async (req, res) => {
   try {
@@ -115,8 +117,8 @@ const login = async (req, res) => {
 
     const token = jwt.sign(
       { userId: user._id, role: user.role, tenantId: user.tenantId },
-      process.env.secret_key,
-      { expiresIn: "7d" },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRATION },
     );
 
     res.status(200).json({
@@ -136,10 +138,11 @@ const login = async (req, res) => {
 
 async function getAllUsers(req, res) {
   try {
-    const users = await User.find();
-    if (!users || users.length === 0) {
-      return res.status(404).json({ message: "No users found" });
-    }
+    // super_admin can see every tenant's users; everyone else only their own tenant's
+    const filter =
+      req.user.role === "super_admin" ? {} : { tenantId: req.user.tenantId };
+
+    const users = await User.find(filter).select("-password");
     res.status(200).json(users);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -155,9 +158,16 @@ const getUserById = async (req, res) => {
       return res.status(400).json({ error: "Invalid user ID format" });
     }
 
-    const user = await User.findById(id);
+    const user = await User.findById(id).select("-password");
     if (!user) {
       return res.status(404).json({ error: "User not found" });
+    }
+
+    if (
+      req.user.role !== "super_admin" &&
+      String(user.tenantId) !== String(req.user.tenantId)
+    ) {
+      return res.status(403).json({ error: "Access denied for this tenant" });
     }
 
     return res.status(200).json(user);
@@ -168,7 +178,8 @@ const getUserById = async (req, res) => {
 
 const createUser = async (req, res) => {
   try {
-    const { email, password, role, tenantId, employeeId, status } = req.body;
+    const { email, password, role, employeeId, status } = req.body;
+    let { tenantId } = req.body;
 
     if (!email || !password || !role) {
       return res
@@ -194,6 +205,17 @@ const createUser = async (req, res) => {
       });
     }
 
+    // A tenant-scoped admin/manager can only create users inside their own
+    // tenant, and can never mint a super_admin account.
+    if (req.user.role !== "super_admin") {
+      if (role === "super_admin") {
+        return res
+          .status(403)
+          .json({ error: "Access denied, insufficient permissions" });
+      }
+      tenantId = req.user.tenantId;
+    }
+
     const validStatuses = ["active", "inactive", "suspended"];
     if (status && !validStatuses.includes(status)) {
       return res.status(400).json({
@@ -202,7 +224,7 @@ const createUser = async (req, res) => {
     }
 
     const objectIdRegex = /^[a-f\d]{24}$/i;
-    if (tenantId && !objectIdRegex.test(tenantId)) {
+    if (tenantId && !objectIdRegex.test(String(tenantId))) {
       return res.status(400).json({ error: "Invalid tenantId format" });
     }
     if (employeeId && !objectIdRegex.test(employeeId)) {
@@ -257,7 +279,33 @@ const updateUser = async (req, res) => {
       return res.status(400).json({ error: "Invalid user ID format" });
     }
 
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    if (
+      req.user.role !== "super_admin" &&
+      String(targetUser.tenantId) !== String(req.user.tenantId)
+    ) {
+      return res.status(403).json({ error: "Access denied for this tenant" });
+    }
+
     const { email, password, role, status, tenantId, employeeId } = req.body;
+
+    // Only super_admin may reassign a user's tenant or grant super_admin
+    if (req.user.role !== "super_admin") {
+      if (tenantId !== undefined) {
+        return res
+          .status(403)
+          .json({ error: "Access denied, insufficient permissions" });
+      }
+      if (role === "super_admin") {
+        return res
+          .status(403)
+          .json({ error: "Access denied, insufficient permissions" });
+      }
+    }
+
     const updates = {};
 
     if (email !== undefined) {
@@ -350,10 +398,18 @@ const deleteUser = async (req, res) => {
       return res.status(400).json({ error: "Invalid user ID format" });
     }
 
-    const user = await User.findByIdAndDelete(id);
-    if (!user) {
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
       return res.status(404).json({ error: "User not found" });
     }
+    if (
+      req.user.role !== "super_admin" &&
+      String(targetUser.tenantId) !== String(req.user.tenantId)
+    ) {
+      return res.status(403).json({ error: "Access denied for this tenant" });
+    }
+
+    await targetUser.deleteOne();
 
     return res.status(200).json({ message: "User deleted successfully." });
   } catch (error) {

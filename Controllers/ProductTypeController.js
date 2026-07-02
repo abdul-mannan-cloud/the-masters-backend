@@ -1,11 +1,77 @@
-import ProductType from "../Models/ProductType.js";
+import * as ProductTypeService from "../Services/ProductTypeService.js";
+import sendErrorResponse from "../utils/errorHandler.js";
+import isValidObjectId from "../utils/validateObjectId.js";
+import AppError from "../utils/AppError.js";
 
-export const getAllProductTypes = async (req, res) => {};
+export const getAllProductTypes = async (req, res) => {
+  try {
+    const productTypes = await ProductTypeService.listProductTypes(req.user.tenantId);
+    return res.status(200).json(productTypes);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
 
-export const getProductTypeById = async (req, res) => {};
+export const getProductTypeById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid product type ID format", 400);
+    }
+    const productType = await ProductTypeService.getProductTypeById(
+      req.user.tenantId,
+      id,
+    );
+    return res.status(200).json(productType);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
 
-export const createProductType = async (req, res) => {};
+export const createProductType = async (req, res) => {
+  try {
+    const productType = await ProductTypeService.createProductType(
+      req.user.tenantId,
+      req.body,
+      req.user.userId,
+    );
+    return res
+      .status(201)
+      .json({ message: "Product type created successfully.", productType });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
 
-export const updateProductType = async (req, res) => {};
+export const updateProductType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid product type ID format", 400);
+    }
+    const productType = await ProductTypeService.updateProductType(
+      req.user.tenantId,
+      id,
+      req.body,
+      req.user.userId,
+    );
+    return res
+      .status(200)
+      .json({ message: "Product type updated successfully.", productType });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
 
-export const deleteProductType = async (req, res) => {};
+export const deleteProductType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid product type ID format", 400);
+    }
+    await ProductTypeService.deleteProductType(req.user.tenantId, id, req.user.userId);
+    return res.status(200).json({ message: "Product type deleted successfully." });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};

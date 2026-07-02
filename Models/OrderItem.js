@@ -61,6 +61,16 @@ const orderItemSchema = new mongoose.Schema(
       enum: ["pending", "in_progress", "completed", "cancelled"],
       default: "pending",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   { timestamps: true },
 );

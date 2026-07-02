@@ -6,13 +6,14 @@ import {
   updateEmployee,
   deleteEmployee,
 } from "../Controllers/EmployeeController.js";
+import authentication from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-router.get("/", getAllEmployees);
-router.get("/:id", getEmployeeById);
-router.post("/", createEmployee);
-router.put("/:id", updateEmployee);
-router.delete("/:id", deleteEmployee);
+router.get("/", authentication(), getAllEmployees);
+router.get("/:id", authentication(), getEmployeeById);
+router.post("/", authentication("tenant_admin", "manager"), createEmployee);
+router.put("/:id", authentication("tenant_admin", "manager"), updateEmployee);
+router.delete("/:id", authentication("tenant_admin", "manager"), deleteEmployee);
 
 export default router;

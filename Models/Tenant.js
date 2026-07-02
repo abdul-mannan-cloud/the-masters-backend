@@ -7,8 +7,6 @@ const tenantSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    // URL-friendly unique identifier, e.g., "ali-tailors-lahore"
-    // Used for subdomain routing in future: ali-tailors-lahore.themasters.app
     slug: {
       type: String,
       required: true,
@@ -30,7 +28,6 @@ const tenantSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    // Subscription tier — controls feature access in application layer
     plan: {
       type: String,
       enum: ["free", "basic", "pro", "enterprise"],
@@ -40,6 +37,16 @@ const tenantSchema = new mongoose.Schema(
       type: String,
       enum: ["active", "suspended", "cancelled"],
       default: "active",
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
   },
   { timestamps: true },

@@ -6,13 +6,14 @@ import {
   updateOrderItem,
   deleteOrderItem,
 } from "../Controllers/OrderItemController.js";
+import authentication from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-router.get("/", getAllOrderItems);
-router.get("/:id", getOrderItemById);
-router.post("/", createOrderItem);
-router.put("/:id", updateOrderItem);
-router.delete("/:id", deleteOrderItem);
+router.get("/", authentication(), getAllOrderItems);
+router.get("/:id", authentication(), getOrderItemById);
+router.post("/", authentication("tenant_admin", "manager"), createOrderItem);
+router.put("/:id", authentication("tenant_admin", "manager", "employee"), updateOrderItem);
+router.delete("/:id", authentication("tenant_admin", "manager"), deleteOrderItem);
 
 export default router;

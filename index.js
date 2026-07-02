@@ -6,21 +6,22 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 import userRoutes from "./routes/User.js";
+import customerRoutes from "./routes/Customer.js";
+import orderRoutes from "./routes/Order.js";
+import employeeRoutes from "./routes/Employee.js";
+import measurementRoutes from "./routes/Measurements.js";
+import notificationRoutes from "./routes/Notification.js";
+import orderItemRoutes from "./routes/OrderItem.js";
+import orderItemAssignmentRoutes from "./routes/OrderItemAssignment.js";
+import paymentRoutes from "./routes/Payment.js";
+import productTypeRoutes from "./routes/ProductType.js";
+import settingsRoutes from "./routes/Settings.js";
+import tenantRoutes from "./routes/Tenant.js";
+
 // import clothRoutes from "./routes/Cloths.js";
-// import customerRoutes from "./routes/Customer.js";
 // import productRoutes from "./routes/Product.js";
-// import orderRoutes from "./routes/Order.js";
-// import employeeRoutes from "./routes/Employee.js";
-// import measurementRoutes from "./routes/Measurements.js";
 // import itemRoutes from "./routes/items.js";
 // import searchRoutes from "./routes/search.js";
-// import notificationRoutes from "./routes/Notification.js";
-// import orderItemRoutes from "./routes/OrderItem.js";
-// import orderItemAssignmentRoutes from "./routes/OrderItemAssignment.js";
-// import paymentRoutes from "./routes/Payment.js";
-// import productTypeRoutes from "./routes/ProductType.js";
-// import settingsRoutes from "./routes/Settings.js";
-// import tenantRoutes from "./routes/Tenant.js";
 
 dotenv.config();
 
@@ -35,21 +36,21 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/assets", express.static(path.join(__dirname, "public/assets")));
 
 app.use("/admin", userRoutes);
+app.use("/customer", customerRoutes);
+app.use("/order", orderRoutes);
+app.use("/employee", employeeRoutes);
+app.use("/measurement", measurementRoutes);
+app.use("/notification", notificationRoutes);
+app.use("/order-item", orderItemRoutes);
+app.use("/order-item-assignment", orderItemAssignmentRoutes);
+app.use("/payment", paymentRoutes);
+app.use("/product-type", productTypeRoutes);
+app.use("/settings", settingsRoutes);
+app.use("/tenant", tenantRoutes);
 // app.use("/cloth", clothRoutes);
-// app.use("/customer", customerRoutes);
 // app.use("/product", productRoutes);
-// app.use("/order", orderRoutes);
-// app.use("/employee", employeeRoutes);
-// app.use("/measurement", measurementRoutes);
 // app.use("/items", itemRoutes);
 // app.use("/search", searchRoutes);
-// app.use("/notification", notificationRoutes);
-// app.use("/order-item", orderItemRoutes);
-// app.use("/order-item-assignment", orderItemAssignmentRoutes);
-// app.use("/payment", paymentRoutes);
-// app.use("/product-type", productTypeRoutes);
-// app.use("/settings", settingsRoutes);
-// app.use("/tenant", tenantRoutes);
 
 const DB = process.env.MONGO_URI || "mongodb://localhost:27017/digitalTailor";
 const port = process.env.PORT || 3001;

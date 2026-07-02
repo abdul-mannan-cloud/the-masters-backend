@@ -6,13 +6,14 @@ import {
   updatePayment,
   deletePayment,
 } from "../Controllers/PaymentController.js";
+import authentication from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
-router.get("/", getAllPayments);
-router.get("/:id", getPaymentById);
-router.post("/", createPayment);
-router.put("/:id", updatePayment);
-router.delete("/:id", deletePayment);
+router.get("/", authentication(), getAllPayments);
+router.get("/:id", authentication(), getPaymentById);
+router.post("/", authentication("tenant_admin", "manager"), createPayment);
+router.put("/:id", authentication("tenant_admin", "manager"), updatePayment);
+router.delete("/:id", authentication("tenant_admin"), deletePayment);
 
 export default router;

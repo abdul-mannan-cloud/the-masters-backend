@@ -2,3 +2,5 @@ node_modules
 .env
 
 the-masters-backend\.env
+the-masters-backend\.idea
+the-masters-backend\node_modules

@@ -8,15 +8,16 @@ import {
   updateUser,
   deleteUser,
 } from "../Controllers/UserController.js";
+import authentication from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
 router.post("/signup", signup);
 router.post("/login", login);
-router.get("/", getAllUsers);
-router.get("/:id", getUserById);
-router.post("/", createUser);
-router.put("/:id", updateUser);
-router.delete("/:id", deleteUser);
+router.get("/", authentication("super_admin", "tenant_admin"), getAllUsers);
+router.get("/:id", authentication(), getUserById);
+router.post("/", authentication("super_admin", "tenant_admin"), createUser);
+router.put("/:id", authentication("super_admin", "tenant_admin"), updateUser);
+router.delete("/:id", authentication("super_admin", "tenant_admin"), deleteUser);
 
 export default router;
