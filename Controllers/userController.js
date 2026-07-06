@@ -1,17 +1,41 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import User from "../Models/User.js";
+import Tenant from "../Models/Tenant.js";
 import dotenv from "dotenv";
 dotenv.config();
 
+const slugify = (value) =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+const generateUniqueSlug = async (businessName, session) => {
+  const base = slugify(businessName) || "business";
+  let slug = base;
+  let suffix = 1;
+  while (await Tenant.findOne({ slug }).session(session)) {
+    slug = `${base}-${suffix++}`;
+  }
+  return slug;
+};
+
+// Self-service signup for a brand-new tailoring business: creates the Tenant
+// and its first tenant_admin user together, since neither can exist without
+// the other. Signing up a user into an *existing* tenant (e.g. inviting an
+// employee) is handled separately by UserController.createUser, which is
+// tenant-scoped and auth-gated.
 const signup = async (req, res) => {
   try {
-    const { email, password, role, tenantId, employeeId } = req.body;
+    const { email, password, businessName } = req.body;
 
-    if (!email || !password || !role) {
+    if (!email || !password || !businessName) {
       return res
         .status(400)
-        .json({ error: "email, password, and role are required" });
+        .json({ error: "email, password, and businessName are required" });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -25,44 +49,48 @@ const signup = async (req, res) => {
         .json({ error: "Password must be at least 8 characters" });
     }
 
-    const validRoles = ["super_admin", "tenant_admin", "employee"];
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({
-        error: `Invalid role. Must be one of: ${validRoles.join(", ")}`,
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+
+      const slug = await generateUniqueSlug(businessName, session);
+
+      const [tenant] = await Tenant.create(
+        [{ businessName, slug, contactEmail: email }],
+        { session },
+      );
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const [user] = await User.create(
+        [
+          {
+            email,
+            password: hashedPassword,
+            role: "tenant_admin",
+            tenantId: tenant._id,
+          },
+        ],
+        { session },
+      );
+
+      await session.commitTransaction();
+
+      return res.status(201).json({
+        message: "Business account created successfully.",
+        user: {
+          id: user._id,
+          email: user.email,
+          role: user.role,
+          tenantId: user.tenantId,
+        },
+        tenant: { id: tenant._id, businessName: tenant.businessName, slug: tenant.slug },
       });
+    } catch (err) {
+      await session.abortTransaction();
+      throw err;
+    } finally {
+      session.endSession();
     }
-
-    const objectIdRegex = /^[a-f\d]{24}$/i;
-    if (tenantId && !objectIdRegex.test(tenantId)) {
-      return res.status(400).json({ error: "Invalid tenantId format" });
-    }
-    if (employeeId && !objectIdRegex.test(employeeId)) {
-      return res.status(400).json({ error: "Invalid employeeId format" });
-    }
-
-    // Unique index is on { tenantId, email } — check must match that scope
-    const existingUser = await User.findOne({
-      email,
-      tenantId: tenantId || null,
-    });
-    if (existingUser) {
-      return res.status(400).json({ error: "User already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await User.create({
-      email,
-      password: hashedPassword,
-      role,
-      tenantId: tenantId || null,
-      employeeId: employeeId || null,
-    });
-
-    return res.status(201).json({
-      message: "User registered successfully.",
-      user,
-    });
   } catch (err) {
     console.error("Error during signup:", err);
 
@@ -90,7 +118,7 @@ const signup = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password, tenantId = null } = req.body;
+    const { email, password, tenantId } = req.body;
 
     if (!email || !password) {
       return res
@@ -98,7 +126,13 @@ const login = async (req, res) => {
         .json({ message: "email and password are required" });
     }
 
-    const user = await User.findOne({ email, tenantId });
+    // Email is only unique per-tenant, so if the caller already knows which
+    // business they belong to (tenantId supplied), scope the lookup to it.
+    // Otherwise fall back to a plain email lookup — the common case, since
+    // most users only ever belong to one tenant.
+    const user = await User.findOne(
+      tenantId ? { email, tenantId } : { email },
+    );
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
