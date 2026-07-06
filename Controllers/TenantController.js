@@ -45,7 +45,9 @@ export const createTenant = async (req, res) => {
       throw new AppError("Access denied, insufficient permissions", 403);
     }
     const tenant = await TenantService.createTenant(req.body, req.user.userId);
-    return res.status(201).json({ message: "Tenant created successfully.", tenant });
+    return res
+      .status(201)
+      .json({ message: "Tenant created successfully.", tenant });
   } catch (err) {
     return sendErrorResponse(res, err);
   }
@@ -68,8 +70,14 @@ export const updateTenant = async (req, res) => {
       throw new AppError("Access denied, insufficient permissions", 403);
     }
 
-    const tenant = await TenantService.updateTenant(id, req.body, req.user.userId);
-    return res.status(200).json({ message: "Tenant updated successfully.", tenant });
+    const tenant = await TenantService.updateTenant(
+      id,
+      req.body,
+      req.user.userId,
+    );
+    return res
+      .status(200)
+      .json({ message: "Tenant updated successfully.", tenant });
   } catch (err) {
     return sendErrorResponse(res, err);
   }

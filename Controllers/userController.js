@@ -83,7 +83,11 @@ const signup = async (req, res) => {
           role: user.role,
           tenantId: user.tenantId,
         },
-        tenant: { id: tenant._id, businessName: tenant.businessName, slug: tenant.slug },
+        tenant: {
+          id: tenant._id,
+          businessName: tenant.businessName,
+          slug: tenant.slug,
+        },
       });
     } catch (err) {
       await session.abortTransaction();
@@ -130,9 +134,7 @@ const login = async (req, res) => {
     // business they belong to (tenantId supplied), scope the lookup to it.
     // Otherwise fall back to a plain email lookup — the common case, since
     // most users only ever belong to one tenant.
-    const user = await User.findOne(
-      tenantId ? { email, tenantId } : { email },
-    );
+    const user = await User.findOne(tenantId ? { email, tenantId } : { email });
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
