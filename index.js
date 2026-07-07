@@ -17,6 +17,7 @@ import paymentRoutes from "./routes/Payment.js";
 import productTypeRoutes from "./routes/ProductType.js";
 import settingsRoutes from "./routes/Settings.js";
 import tenantRoutes from "./routes/Tenant.js";
+import seedSuperAdmin from "./utils/seedSuperAdmin.js";
 
 // import clothRoutes from "./routes/Cloths.js";
 // import productRoutes from "./routes/Product.js";
@@ -53,15 +54,16 @@ app.use("/tenant", tenantRoutes);
 // app.use("/search", searchRoutes);
 
 const DB = process.env.MONGO_URI || "mongodb://localhost:27017/digitalTailor";
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3004;
 
 mongoose
   .connect(DB, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => {
+  .then(async () => {
     console.log("Database connected");
+    await seedSuperAdmin();
     app.listen(port, () => {
       console.log(`App Listening at Port ${port}`);
     });

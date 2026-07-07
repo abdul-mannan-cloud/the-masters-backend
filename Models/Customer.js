@@ -25,10 +25,11 @@ const customerSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+    // No default — Mongoose's enum validator rejects `null`, so leaving
+    // gender unset must mean the field is absent, not defaulted to null.
     gender: {
       type: String,
       enum: ["male", "female"],
-      default: null,
     },
     notes: {
       type: String,

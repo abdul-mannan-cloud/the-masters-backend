@@ -5,8 +5,14 @@ import AppError from "../utils/AppError.js";
 
 export const getAllProductTypes = async (req, res) => {
   try {
-    const productTypes = await ProductTypeService.listProductTypes(req.user.tenantId);
-    return res.status(200).json(productTypes);
+    const { page, limit, search, isActive } = req.query;
+    const result = await ProductTypeService.listProductTypes(req.user.tenantId, {
+      page,
+      limit,
+      search,
+      isActive,
+    });
+    return res.status(200).json(result);
   } catch (err) {
     return sendErrorResponse(res, err);
   }
@@ -58,6 +64,26 @@ export const updateProductType = async (req, res) => {
     return res
       .status(200)
       .json({ message: "Product type updated successfully.", productType });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const toggleProductTypeStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid product type ID format", 400);
+    }
+    const productType = await ProductTypeService.toggleStatus(
+      req.user.tenantId,
+      id,
+      req.body.isActive,
+      req.user.userId,
+    );
+    return res
+      .status(200)
+      .json({ message: "Product type status updated successfully.", productType });
   } catch (err) {
     return sendErrorResponse(res, err);
   }

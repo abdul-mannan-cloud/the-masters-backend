@@ -22,14 +22,15 @@ const validateValues = (values) => {
   }
 };
 
-// Guard against a client passing a customerId/productTypeId that belongs to another tenant
-const assertBelongsToTenant = async (tenantId, customerId, productTypeId) => {
-  const [customer, productType] = await Promise.all([
-    Customer.findOne({ _id: customerId, tenantId, isDeleted: false }),
-    ProductType.findOne({ _id: productTypeId, tenantId, isDeleted: false }),
-  ]);
-  if (!customer) throw new AppError("Customer not found for this tenant", 404);
-  if (!productType) throw new AppError("Product type not found for this tenant", 404);
+// A catalog-driven measurement must capture every field the ProductType's
+// template marks required — otherwise the garment can't actually be cut from it.
+const assertRequiredFieldsCaptured = (measurementTemplate, values) => {
+  const requiredIds = measurementTemplate.filter((f) => f.required).map((f) => f.id);
+  const capturedIds = new Set(values.map((v) => v.fieldId));
+  const missing = requiredIds.filter((id) => !capturedIds.has(id));
+  if (missing.length) {
+    throw new AppError(`Missing required measurement fields: ${missing.join(", ")}`, 400);
+  }
 };
 
 export const listMeasurements = async (tenantId, customerId) => {
@@ -44,25 +45,68 @@ export const getMeasurementById = async (tenantId, id) => {
   return measurement;
 };
 
-export const createMeasurement = async (tenantId, data, userId) => {
-  const { customerId, productTypeId, label, values, notes } = data;
+// `session` is optional — pass it when this is called as part of a larger
+// transaction (e.g. CustomerService.createCustomer creating a customer and
+// their initial garment measurements together). Omitted, it runs standalone.
+export const createMeasurement = async (tenantId, data, userId, session) => {
+  const { customerId, productTypeId, garmentType, label, values, notes, price } = data;
 
-  if (!customerId || !productTypeId) {
-    throw new AppError("customerId and productTypeId are required", 400);
+  if (!customerId) {
+    throw new AppError("customerId is required", 400);
+  }
+  if (price === undefined || price === null || price === "") {
+    throw new AppError("price is required", 400);
+  }
+  if (price < 0) {
+    throw new AppError("price cannot be negative", 400);
   }
   validateValues(values);
-  await assertBelongsToTenant(tenantId, customerId, productTypeId);
 
-  return Measurement.create({
+  const customer = await Customer.findOne({
+    _id: customerId,
     tenantId,
-    customerId,
-    productTypeId,
-    label,
-    values,
-    notes,
-    createdBy: userId,
-    updatedBy: userId,
-  });
+    isDeleted: false,
+  }).session(session);
+  if (!customer) throw new AppError("Customer not found for this tenant", 404);
+
+  // Garment type name is always resolved server-side — snapshotted from the
+  // ProductType when one is selected, never trusted from the client.
+  let resolvedGarmentType;
+  if (productTypeId) {
+    const productType = await ProductType.findOne({
+      _id: productTypeId,
+      tenantId,
+      isDeleted: false,
+    }).session(session);
+    if (!productType) throw new AppError("Product type not found for this tenant", 404);
+    assertRequiredFieldsCaptured(productType.measurementTemplate, values);
+    resolvedGarmentType = productType.name;
+  } else {
+    // Manual measurement — no matching catalog product type.
+    if (!garmentType || !garmentType.trim()) {
+      throw new AppError("garmentType is required for a manual measurement", 400);
+    }
+    resolvedGarmentType = garmentType.trim();
+  }
+
+  const [measurement] = await Measurement.create(
+    [
+      {
+        tenantId,
+        customerId,
+        productTypeId: productTypeId || undefined,
+        garmentType: resolvedGarmentType,
+        price,
+        label,
+        values,
+        notes,
+        createdBy: userId,
+        updatedBy: userId,
+      },
+    ],
+    { session },
+  );
+  return measurement;
 };
 
 export const updateMeasurement = async (tenantId, id, data, userId) => {
@@ -77,9 +121,24 @@ export const updateMeasurement = async (tenantId, id, data, userId) => {
     );
   }
 
-  if (data.values !== undefined) validateValues(data.values);
+  if (data.values !== undefined) {
+    validateValues(data.values);
+    if (measurement.productTypeId) {
+      const productType = await ProductType.findOne({
+        _id: measurement.productTypeId,
+        tenantId,
+        isDeleted: false,
+      });
+      if (productType) assertRequiredFieldsCaptured(productType.measurementTemplate, data.values);
+    }
+  }
+  if (data.price !== undefined && data.price < 0) {
+    throw new AppError("price cannot be negative", 400);
+  }
 
-  const allowedFields = ["label", "values", "notes"];
+  // garmentType/productTypeId are not editable — changing the garment a
+  // measurement is for means creating a new measurement, not editing this one.
+  const allowedFields = ["label", "values", "notes", "price"];
   for (const field of allowedFields) {
     if (data[field] !== undefined) measurement[field] = data[field];
   }

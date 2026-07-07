@@ -1,5 +1,6 @@
 node_modules
 .env
+mongo-rs-data
 
 the-masters-backend\.env
 the-masters-backend\.idea

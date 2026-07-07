@@ -1,14 +1,5 @@
 import mongoose from "mongoose";
-
-const SKILLS = [
-  "Cutting",
-  "Tailoring",
-  "Design",
-  "Packing",
-  "Sales",
-  "Finishing",
-  "Embroidery",
-];
+import EMPLOYEE_SKILLS from "../utils/skills.js";
 
 const employeeSchema = new mongoose.Schema(
   {
@@ -41,7 +32,7 @@ const employeeSchema = new mongoose.Schema(
     // Used for assignment suggestions and workflow validation
     skills: {
       type: [String],
-      enum: SKILLS,
+      enum: EMPLOYEE_SKILLS,
       default: [],
     },
     // Salary amount — application logic decides if this is monthly or per-item

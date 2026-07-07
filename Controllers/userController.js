@@ -178,6 +178,16 @@ async function getAllUsers(req, res) {
     const filter =
       req.user.role === "super_admin" ? {} : { tenantId: req.user.tenantId };
 
+    // Lets the frontend look up the login account linked to a given employee
+    // (e.g. Employee View's "portal access" panel).
+    const objectIdRegex = /^[a-f\d]{24}$/i;
+    if (req.query.employeeId) {
+      if (!objectIdRegex.test(req.query.employeeId)) {
+        return res.status(400).json({ error: "Invalid employeeId format" });
+      }
+      filter.employeeId = req.query.employeeId;
+    }
+
     const users = await User.find(filter).select("-password");
     res.status(200).json(users);
   } catch (error) {

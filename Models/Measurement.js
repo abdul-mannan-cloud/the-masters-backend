@@ -38,11 +38,29 @@ const measurementSchema = new mongoose.Schema(
       ref: "Customer",
       required: true,
     },
-    // Which product type's template was used to capture these measurements
+    // Which product type's template was used to capture these measurements.
+    // Absent for a manual measurement — no matching catalog product type existed.
     productTypeId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ProductType",
+      default: null,
+    },
+    // Garment type display name — snapshot of ProductType.name at capture time
+    // (or free-typed by the employee for a manual measurement). Kept even if
+    // the ProductType is later renamed/deleted, and used to group a
+    // customer's measurements by garment on the Customer Details page.
+    garmentType: {
+      type: String,
       required: true,
+      trim: true,
+    },
+    // Snapshot of ProductType.basePrice at capture time, editable before save —
+    // never recalculated from the ProductType afterward (same convention as
+    // OrderItem.unitPrice).
+    price: {
+      type: Number,
+      required: true,
+      min: 0,
     },
     // Optional human label to help staff identify measurement sets
     // e.g., "Wedding Suit 2024", "Eid Kameez"

@@ -12,9 +12,17 @@ const authentication = (...allowedRoles) => {
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
       // Verify the token
       if (err) {
-        return res.status(403).json({ error: "Invalid token" }); // If token is invalid, return 403
+        // Not authenticated (missing/expired/tampered token) — distinct from
+        // "authenticated but not permitted" below. The frontend's axios
+        // interceptor only clears the stored token and redirects to /login
+        // on 401, so a stale token must surface as 401, not 403, or the
+        // client is stuck resending the same dead token forever.
+        return res.status(401).json({ error: "Invalid or expired token" });
       }
-      if (allowedRoles.length && !allowedRoles.includes(user.role)) {
+      // super_admin is the platform operator account — it passes every
+      // route's role check regardless of which roles were listed.
+      const isSuperAdmin = user.role === "super_admin";
+      if (!isSuperAdmin && allowedRoles.length && !allowedRoles.includes(user.role)) {
         return res
           .status(403)
           .json({ error: "Access denied, insufficient permissions" }); // If user role is not allowed, return 403

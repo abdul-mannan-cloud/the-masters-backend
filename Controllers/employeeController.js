@@ -2,6 +2,17 @@ import * as EmployeeService from "../Services/EmployeeService.js";
 import sendErrorResponse from "../utils/errorHandler.js";
 import isValidObjectId from "../utils/validateObjectId.js";
 import AppError from "../utils/AppError.js";
+import EMPLOYEE_SKILLS from "../utils/skills.js";
+
+// Backs dropdowns (e.g. ProductType workflow's "Required Skill") that must
+// stay in sync with the Employee.skills enum without hardcoding it on the frontend.
+export const getSkills = async (req, res) => {
+  try {
+    return res.status(200).json(EMPLOYEE_SKILLS);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
 
 export const getAllEmployees = async (req, res) => {
   try {
@@ -38,6 +49,23 @@ export const createEmployee = async (req, res) => {
     return res
       .status(201)
       .json({ message: "Employee created successfully.", employee });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+// Enrolls a new employee: creates the Employee profile and grants portal
+// access (a User with role "employee") together in one request.
+export const enrollEmployee = async (req, res) => {
+  try {
+    const result = await EmployeeService.enrollEmployee(
+      req.user.tenantId,
+      req.body,
+      req.user.userId,
+    );
+    return res
+      .status(201)
+      .json({ message: "Employee enrolled successfully.", ...result });
   } catch (err) {
     return sendErrorResponse(res, err);
   }
