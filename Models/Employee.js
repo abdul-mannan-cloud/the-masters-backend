@@ -45,6 +45,13 @@ const employeeSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Governs what this employee can view/create/update/delete via authorize()
+    // middleware — null means "no access assigned yet" (every authorize() check fails).
+    roleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role",
+      default: null,
+    },
     isDeleted: {
       type: Boolean,
       default: false,
@@ -81,5 +88,8 @@ employeeSchema.index(
 
 // Phone uniqueness scoped per tenant
 employeeSchema.index({ tenantId: 1, phone: 1 }, { unique: true });
+
+// Role-deletion-in-use guard + "employees per role" dashboard queries
+employeeSchema.index({ tenantId: 1, roleId: 1 });
 
 export default mongoose.model("Employee", employeeSchema);

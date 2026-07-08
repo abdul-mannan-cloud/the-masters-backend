@@ -5,6 +5,9 @@ import {
   createTenant,
   updateTenant,
   deleteTenant,
+  suspendTenant,
+  activateTenant,
+  getTenantStats,
 } from "../Controllers/TenantController.js";
 import authentication from "../middlewares/authMiddleware.js";
 
@@ -17,5 +20,8 @@ router.get("/:id", authentication(), getTenantById);
 router.post("/", authentication("super_admin"), createTenant);
 router.put("/:id", authentication(), updateTenant);
 router.delete("/:id", authentication("super_admin"), deleteTenant);
+router.patch("/:id/suspend", authentication("super_admin"), suspendTenant);
+router.patch("/:id/activate", authentication("super_admin"), activateTenant);
+router.get("/:id/stats", authentication(), getTenantStats);
 
 export default router;

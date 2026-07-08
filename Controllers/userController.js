@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import User from "../Models/User.js";
 import Tenant from "../Models/Tenant.js";
+import { seedRolesForTenant } from "../utils/seedDefaultRoles.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -72,6 +73,8 @@ const signup = async (req, res) => {
         ],
         { session },
       );
+
+      await seedRolesForTenant(tenant._id, user._id, session);
 
       await session.commitTransaction();
 
@@ -148,11 +151,27 @@ const login = async (req, res) => {
       return res.status(403).json({ message: "Account is not active" });
     }
 
+    // A suspended/deleted business must block every one of its users from
+    // logging in — otherwise "suspend tenant" would be cosmetic.
+    if (user.tenantId) {
+      const tenant = await Tenant.findById(user.tenantId);
+      if (!tenant || tenant.isDeleted || tenant.status !== "active") {
+        return res
+          .status(403)
+          .json({ message: "This business account is suspended or no longer active" });
+      }
+    }
+
     user.lastLoginAt = new Date();
     await user.save();
 
     const token = jwt.sign(
-      { userId: user._id, role: user.role, tenantId: user.tenantId },
+      {
+        userId: user._id,
+        role: user.role,
+        tenantId: user.tenantId,
+        employeeId: user.employeeId,
+      },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRATION },
     );
@@ -165,6 +184,7 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         tenantId: user.tenantId,
+        employeeId: user.employeeId,
       },
     });
   } catch (error) {

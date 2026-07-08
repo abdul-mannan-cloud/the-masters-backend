@@ -17,7 +17,10 @@ import paymentRoutes from "./routes/Payment.js";
 import productTypeRoutes from "./routes/ProductType.js";
 import settingsRoutes from "./routes/Settings.js";
 import tenantRoutes from "./routes/Tenant.js";
+import roleRoutes from "./routes/Role.js";
+import dashboardRoutes from "./routes/Dashboard.js";
 import seedSuperAdmin from "./utils/seedSuperAdmin.js";
+import { backfillRolesForExistingTenants } from "./utils/seedDefaultRoles.js";
 
 // import clothRoutes from "./routes/Cloths.js";
 // import productRoutes from "./routes/Product.js";
@@ -48,6 +51,8 @@ app.use("/payment", paymentRoutes);
 app.use("/product-type", productTypeRoutes);
 app.use("/settings", settingsRoutes);
 app.use("/tenant", tenantRoutes);
+app.use("/role", roleRoutes);
+app.use("/dashboard", dashboardRoutes);
 // app.use("/cloth", clothRoutes);
 // app.use("/product", productRoutes);
 // app.use("/items", itemRoutes);
@@ -64,6 +69,7 @@ mongoose
   .then(async () => {
     console.log("Database connected");
     await seedSuperAdmin();
+    await backfillRolesForExistingTenants();
     app.listen(port, () => {
       console.log(`App Listening at Port ${port}`);
     });

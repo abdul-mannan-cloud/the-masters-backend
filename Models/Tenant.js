@@ -38,6 +38,14 @@ const tenantSchema = new mongoose.Schema(
       enum: ["active", "suspended", "cancelled"],
       default: "active",
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

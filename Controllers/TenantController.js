@@ -17,8 +17,9 @@ export const getAllTenants = async (req, res) => {
     if (req.user.role !== "super_admin") {
       throw new AppError("Access denied, insufficient permissions", 403);
     }
-    const tenants = await TenantService.listTenants();
-    return res.status(200).json(tenants);
+    const { page, limit, search, status, plan } = req.query;
+    const result = await TenantService.listTenants({ page, limit, search, status, plan });
+    return res.status(200).json(result);
   } catch (err) {
     return sendErrorResponse(res, err);
   }
@@ -93,8 +94,55 @@ export const deleteTenant = async (req, res) => {
       throw new AppError("Invalid tenant ID format", 400);
     }
 
-    await TenantService.deleteTenant(id);
+    await TenantService.deleteTenant(id, req.user.userId);
     return res.status(200).json({ message: "Tenant deleted successfully." });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const suspendTenant = async (req, res) => {
+  try {
+    if (req.user.role !== "super_admin") {
+      throw new AppError("Access denied, insufficient permissions", 403);
+    }
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid tenant ID format", 400);
+    }
+    const tenant = await TenantService.suspendTenant(id, req.user.userId);
+    return res.status(200).json({ message: "Tenant suspended successfully.", tenant });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const activateTenant = async (req, res) => {
+  try {
+    if (req.user.role !== "super_admin") {
+      throw new AppError("Access denied, insufficient permissions", 403);
+    }
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid tenant ID format", 400);
+    }
+    const tenant = await TenantService.activateTenant(id, req.user.userId);
+    return res.status(200).json({ message: "Tenant activated successfully.", tenant });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const getTenantStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid tenant ID format", 400);
+    }
+    assertOwnTenantOrSuperAdmin(req, id);
+
+    const stats = await TenantService.getTenantStats(id);
+    return res.status(200).json(stats);
   } catch (err) {
     return sendErrorResponse(res, err);
   }

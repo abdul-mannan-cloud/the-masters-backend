@@ -103,3 +103,44 @@ export const deleteEmployee = async (req, res) => {
     return sendErrorResponse(res, err);
   }
 };
+
+// Self-service — lets the logged-in employee fetch their own Role/permissions
+// (backs the frontend Sidebar/AuthContext), distinct from authorize() which
+// enforces access on protected routes.
+export const getMyPermissions = async (req, res) => {
+  try {
+    if (!req.user.employeeId) {
+      return res.status(200).json({ roleId: null, roleName: null, permissions: null });
+    }
+    const result = await EmployeeService.getMyPermissions(req.user.tenantId, req.user.employeeId);
+    return res.status(200).json(result);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const getEmployeeAssignments = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid employee ID format", 400);
+    }
+    const assignments = await EmployeeService.getEmployeeAssignments(req.user.tenantId, id);
+    return res.status(200).json(assignments);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const getEmployeePerformance = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid employee ID format", 400);
+    }
+    const performance = await EmployeeService.getEmployeePerformance(req.user.tenantId, id);
+    return res.status(200).json(performance);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};

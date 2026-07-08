@@ -7,18 +7,36 @@ import {
   updateEmployee,
   deleteEmployee,
   getSkills,
+  getMyPermissions,
+  getEmployeeAssignments,
+  getEmployeePerformance,
 } from "../Controllers/EmployeeController.js";
 import authentication from "../middlewares/authMiddleware.js";
+import authorize from "../middlewares/permissionMiddleware.js";
 
 const router = Router();
 
 // Must come before "/:id" so "skills" isn't parsed as an employee ID.
 router.get("/skills", authentication(), getSkills);
-router.get("/", authentication(), getAllEmployees);
-router.get("/:id", authentication(), getEmployeeById);
-router.post("/", authentication("tenant_admin", "manager"), createEmployee);
-router.post("/enroll", authentication("tenant_admin", "manager"), enrollEmployee);
-router.put("/:id", authentication("tenant_admin", "manager"), updateEmployee);
-router.delete("/:id", authentication("tenant_admin", "manager"), deleteEmployee);
+// Self-service — ungated by authorize(), every authenticated user may read their own grid.
+router.get("/me/permissions", authentication(), getMyPermissions);
+router.get("/", authentication(), authorize("employees", "view"), getAllEmployees);
+router.get("/:id", authentication(), authorize("employees", "view"), getEmployeeById);
+router.post("/", authentication("tenant_admin", "manager", "employee"), authorize("employees", "create"), createEmployee);
+router.post("/enroll", authentication("tenant_admin", "manager", "employee"), authorize("employees", "create"), enrollEmployee);
+router.put("/:id", authentication("tenant_admin", "manager", "employee"), authorize("employees", "update"), updateEmployee);
+router.delete("/:id", authentication("tenant_admin", "manager", "employee"), authorize("employees", "delete"), deleteEmployee);
+router.get(
+  "/:id/assignments",
+  authentication("tenant_admin", "manager", "employee"),
+  authorize("employees", "view"),
+  getEmployeeAssignments,
+);
+router.get(
+  "/:id/performance",
+  authentication("tenant_admin", "manager", "employee"),
+  authorize("employees", "view"),
+  getEmployeePerformance,
+);
 
 export default router;
