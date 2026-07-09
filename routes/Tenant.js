@@ -10,6 +10,7 @@ import {
   getTenantStats,
 } from "../Controllers/TenantController.js";
 import authentication from "../middlewares/authMiddleware.js";
+import upload from "../middlewares/uploadMiddleware.js";
 
 const router = Router();
 
@@ -17,7 +18,12 @@ const router = Router();
 // so every route here just requires *some* authenticated user.
 router.get("/", authentication(), getAllTenants);
 router.get("/:id", authentication(), getTenantById);
-router.post("/", authentication("super_admin"), createTenant);
+router.post(
+  "/",
+  authentication("super_admin"),
+  upload.single("logo"),
+  createTenant,
+);
 router.put("/:id", authentication(), updateTenant);
 router.delete("/:id", authentication("super_admin"), deleteTenant);
 router.patch("/:id/suspend", authentication("super_admin"), suspendTenant);

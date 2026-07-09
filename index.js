@@ -21,6 +21,7 @@ import roleRoutes from "./routes/Role.js";
 import dashboardRoutes from "./routes/Dashboard.js";
 import seedSuperAdmin from "./utils/seedSuperAdmin.js";
 import { backfillRolesForExistingTenants } from "./utils/seedDefaultRoles.js";
+import { backfillCustomerNumbers } from "./utils/backfillCustomerNumbers.js";
 
 // import clothRoutes from "./routes/Cloths.js";
 // import productRoutes from "./routes/Product.js";
@@ -70,6 +71,7 @@ mongoose
     console.log("Database connected");
     await seedSuperAdmin();
     await backfillRolesForExistingTenants();
+    await backfillCustomerNumbers();
     app.listen(port, () => {
       console.log(`App Listening at Port ${port}`);
     });

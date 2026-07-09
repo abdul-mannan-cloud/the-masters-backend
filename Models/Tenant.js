@@ -28,6 +28,10 @@ const tenantSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    logo: {
+      type: String,
+      default: null, // Cloudinary URL
+    },
     plan: {
       type: String,
       enum: ["free", "basic", "pro", "enterprise"],

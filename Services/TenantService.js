@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
+import bcrypt from "bcrypt";
 import Tenant from "../Models/Tenant.js";
+import User from "../Models/User.js";
 import Employee from "../Models/Employee.js";
 import Customer from "../Models/Customer.js";
 import Order from "../Models/Order.js";
@@ -53,19 +55,35 @@ export const getTenantById = async (id) => {
   return tenant;
 };
 
+// Creates a Tenant together with its first tenant_admin User in one
+// transaction (super-admin panel equivalent of the self-service /admin/signup
+// flow) — a tenant created here must be able to log in immediately, so the
+// admin's password is required, not optional.
 export const createTenant = async (data, userId) => {
-  const { businessName, slug, contactEmail, contactPhone, address, plan } =
-    data;
+  const {
+    businessName,
+    slug,
+    contactEmail,
+    contactPhone,
+    address,
+    plan,
+    logo,
+    password,
+  } = data;
 
-  if (!businessName || !slug || !contactEmail) {
+  if (!businessName || !slug || !contactEmail || !password) {
     throw new AppError(
-      "businessName, slug, and contactEmail are required",
+      "businessName, slug, contactEmail, and password are required",
       400,
     );
   }
 
   if (!EMAIL_REGEX.test(contactEmail)) {
     throw new AppError("Invalid contactEmail format", 400);
+  }
+
+  if (password.length < 8) {
+    throw new AppError("Password must be at least 8 characters", 400);
   }
 
   if (plan && !VALID_PLANS.includes(plan)) {
@@ -77,20 +95,54 @@ export const createTenant = async (data, userId) => {
     throw new AppError("A tenant with this slug already exists", 409);
   }
 
-  const tenant = await Tenant.create({
-    businessName,
-    slug,
-    contactEmail,
-    contactPhone,
-    address,
-    ...(plan && { plan }),
-    createdBy: userId,
-    updatedBy: userId,
-  });
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
 
-  await seedRolesForTenant(tenant._id, userId);
+    const [tenant] = await Tenant.create(
+      [
+        {
+          businessName,
+          slug,
+          contactEmail,
+          contactPhone,
+          address,
+          logo: logo || null,
+          ...(plan && { plan }),
+          createdBy: userId,
+          updatedBy: userId,
+        },
+      ],
+      { session },
+    );
 
-  return tenant;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const [admin] = await User.create(
+      [
+        {
+          email: contactEmail,
+          password: hashedPassword,
+          role: "tenant_admin",
+          tenantId: tenant._id,
+        },
+      ],
+      { session },
+    );
+
+    await seedRolesForTenant(tenant._id, admin._id, session);
+
+    await session.commitTransaction();
+
+    return {
+      tenant,
+      admin: { id: admin._id, email: admin.email, role: admin.role },
+    };
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
 export const updateTenant = async (id, data, userId) => {

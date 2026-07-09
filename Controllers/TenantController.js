@@ -45,10 +45,14 @@ export const createTenant = async (req, res) => {
     if (req.user.role !== "super_admin") {
       throw new AppError("Access denied, insufficient permissions", 403);
     }
-    const tenant = await TenantService.createTenant(req.body, req.user.userId);
+    const logo = req.file ? req.file.path : undefined;
+    const { tenant, admin } = await TenantService.createTenant(
+      { ...req.body, ...(logo && { logo }) },
+      req.user.userId,
+    );
     return res
       .status(201)
-      .json({ message: "Tenant created successfully.", tenant });
+      .json({ message: "Tenant created successfully.", tenant, admin });
   } catch (err) {
     return sendErrorResponse(res, err);
   }

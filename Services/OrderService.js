@@ -4,8 +4,8 @@ import OrderItem from "../Models/OrderItem.js";
 import OrderItemAssignment from "../Models/OrderItemAssignment.js";
 import Payment from "../Models/Payment.js";
 import Customer from "../Models/Customer.js";
-import Settings from "../Models/Settings.js";
 import AppError from "../utils/AppError.js";
+import { getNextSequence } from "../utils/counter.js";
 
 const VALID_DISCOUNT_TYPES = ["fixed", "percentage"];
 const VALID_PRODUCTION_STATUSES = [
@@ -25,12 +25,12 @@ const computeTotal = (subtotal, discount, discountType) => {
   return Math.max(0, Math.round(raw * 100) / 100);
 };
 
-const generateOrderNumber = async (tenantId) => {
-  const settings = await Settings.findOne({ tenantId });
-  const prefix = settings?.invoice?.orderNumberPrefix || "ORD";
-  const count = await Order.countDocuments({ tenantId });
-  const sequence = String(count + 1).padStart(4, "0");
-  return `${prefix}-${sequence}`;
+// Order number = the customer's number + that customer's own order sequence,
+// e.g. "cust0001-1", then "cust0001-2" for their next order. The sequence is
+// scoped per customer (not per tenant), so each customer's orders count from 1.
+const generateOrderNumber = async (tenantId, customer, session) => {
+  const sequence = await getNextSequence(tenantId, `order:${customer._id}`, session);
+  return `${customer.customerNumber}-${sequence}`;
 };
 
 export const listOrders = async (tenantId, filters = {}) => {
@@ -71,23 +71,42 @@ export const createOrder = async (tenantId, data, userId) => {
   });
   if (!customer) throw new AppError("Customer not found for this tenant", 404);
 
-  const orderNumber = await generateOrderNumber(tenantId);
-
   // Order starts empty — subtotal/total are recalculated as OrderItems are
   // added via OrderItemService. See claude.md: "totals are snapshots".
-  return Order.create({
-    tenantId,
-    customerId,
-    orderNumber,
-    deliveryDate,
-    subtotal: 0,
-    discount,
-    discountType,
-    total: computeTotal(0, discount, discountType),
-    notes,
-    createdBy: userId,
-    updatedBy: userId,
-  });
+  // The order-number counter and the order document are two collections, so
+  // this is one transaction — a failed create must not burn a sequence number.
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+
+    const orderNumber = await generateOrderNumber(tenantId, customer, session);
+    const [order] = await Order.create(
+      [
+        {
+          tenantId,
+          customerId,
+          orderNumber,
+          deliveryDate,
+          subtotal: 0,
+          discount,
+          discountType,
+          total: computeTotal(0, discount, discountType),
+          notes,
+          createdBy: userId,
+          updatedBy: userId,
+        },
+      ],
+      { session },
+    );
+
+    await session.commitTransaction();
+    return order;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
 export const updateOrder = async (tenantId, id, data, userId) => {
@@ -194,4 +213,4 @@ export const recalculateOrderTotals = async (tenantId, orderId, session) => {
   return order;
 };
 
-export { computeTotal, VALID_PRODUCTION_STATUSES };
+export { computeTotal, generateOrderNumber, VALID_PRODUCTION_STATUSES };

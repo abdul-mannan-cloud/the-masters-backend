@@ -6,6 +6,12 @@ const customerSchema = new mongoose.Schema(
       ref: "Tenant",
       required: true,
     },
+    // System-assigned, unique per tenant — e.g. "cust0001". Never user-editable.
+    customerNumber: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     name: {
       type: String,
       required: true,
@@ -59,6 +65,10 @@ const customerSchema = new mongoose.Schema(
 
 // A customer's phone is unique within one shop, not across all shops
 customerSchema.index({ tenantId: 1, phone: 1 }, { unique: true });
+
+// customerNumber is unique within one shop — sparse so pre-existing customers
+// created before this field existed don't collide on a shared "missing" value
+customerSchema.index({ tenantId: 1, customerNumber: 1 }, { unique: true, sparse: true });
 
 // Name search within a tenant's customer list
 customerSchema.index({ tenantId: 1, name: 1 });

@@ -31,7 +31,8 @@ const generateUniqueSlug = async (businessName, session) => {
 // tenant-scoped and auth-gated.
 const signup = async (req, res) => {
   try {
-    const { email, password, businessName } = req.body;
+    const { email, password, businessName, contactPhone, address } = req.body;
+    const logo = req.file ? req.file.path : null;
 
     if (!email || !password || !businessName) {
       return res
@@ -57,7 +58,7 @@ const signup = async (req, res) => {
       const slug = await generateUniqueSlug(businessName, session);
 
       const [tenant] = await Tenant.create(
-        [{ businessName, slug, contactEmail: email }],
+        [{ businessName, slug, contactEmail: email, contactPhone, address, logo }],
         { session },
       );
 
@@ -90,6 +91,9 @@ const signup = async (req, res) => {
           id: tenant._id,
           businessName: tenant.businessName,
           slug: tenant.slug,
+          logo: tenant.logo,
+          contactPhone: tenant.contactPhone,
+          address: tenant.address,
         },
       });
     } catch (err) {

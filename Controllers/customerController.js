@@ -30,14 +30,17 @@ export const getCustomerById = async (req, res) => {
 
 export const createCustomer = async (req, res) => {
   try {
-    const customer = await CustomerService.createCustomer(
+    const { customer, measurements, order } = await CustomerService.createCustomer(
       req.user.tenantId,
       req.body,
       req.user.userId,
     );
-    return res
-      .status(201)
-      .json({ message: "Customer created successfully.", customer });
+    return res.status(201).json({
+      message: "Customer created successfully.",
+      customer,
+      measurements,
+      order,
+    });
   } catch (err) {
     return sendErrorResponse(res, err);
   }
