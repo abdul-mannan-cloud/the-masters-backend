@@ -75,9 +75,10 @@ export const updateTenant = async (req, res) => {
       throw new AppError("Access denied, insufficient permissions", 403);
     }
 
+    const logo = req.file ? req.file.path : undefined;
     const tenant = await TenantService.updateTenant(
       id,
-      req.body,
+      { ...req.body, ...(logo && { logo }) },
       req.user.userId,
     );
     return res

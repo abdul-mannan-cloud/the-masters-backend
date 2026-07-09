@@ -8,8 +8,8 @@ import Order from "../Models/Order.js";
 import Payment from "../Models/Payment.js";
 import AppError from "../utils/AppError.js";
 import { seedRolesForTenant } from "../utils/seedDefaultRoles.js";
+import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_PLANS = ["free", "basic", "pro", "enterprise"];
 const VALID_STATUSES = ["active", "suspended", "cancelled"];
 
@@ -78,8 +78,16 @@ export const createTenant = async (data, userId) => {
     );
   }
 
-  if (!EMAIL_REGEX.test(contactEmail)) {
+  if (!isValidEmail(contactEmail)) {
     throw new AppError("Invalid contactEmail format", 400);
+  }
+
+  let contactPhoneDigits;
+  if (contactPhone) {
+    contactPhoneDigits = normalizeDigits(contactPhone);
+    if (!isValidPhone(contactPhoneDigits)) {
+      throw new AppError("Enter a valid 11-digit mobile number starting with 03", 400);
+    }
   }
 
   if (password.length < 8) {
@@ -105,7 +113,7 @@ export const createTenant = async (data, userId) => {
           businessName,
           slug,
           contactEmail,
-          contactPhone,
+          contactPhone: contactPhoneDigits,
           address,
           logo: logo || null,
           ...(plan && { plan }),
@@ -153,6 +161,7 @@ export const updateTenant = async (id, data, userId) => {
     "address",
     "plan",
     "status",
+    "logo",
   ];
 
   const updates = {};
@@ -160,8 +169,15 @@ export const updateTenant = async (id, data, userId) => {
     if (data[field] !== undefined) updates[field] = data[field];
   }
 
-  if (updates.contactEmail && !EMAIL_REGEX.test(updates.contactEmail)) {
+  if (updates.contactEmail && !isValidEmail(updates.contactEmail)) {
     throw new AppError("Invalid contactEmail format", 400);
+  }
+
+  if (updates.contactPhone) {
+    updates.contactPhone = normalizeDigits(updates.contactPhone);
+    if (!isValidPhone(updates.contactPhone)) {
+      throw new AppError("Enter a valid 11-digit mobile number starting with 03", 400);
+    }
   }
 
   if (updates.plan && !VALID_PLANS.includes(updates.plan)) {

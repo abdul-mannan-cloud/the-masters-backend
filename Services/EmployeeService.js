@@ -7,8 +7,29 @@ import OrderItemAssignment from "../Models/OrderItemAssignment.js";
 import * as OrderItemAssignmentService from "./OrderItemAssignmentService.js";
 import AppError from "../utils/AppError.js";
 import EMPLOYEE_SKILLS from "../utils/skills.js";
+import { normalizeDigits, isValidPhone, isValidCnic, isValidEmail } from "../utils/validators.js";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Normalizes phone (required, if present in the payload) and CNIC (optional)
+// to raw digits and validates their format — shared by create/enroll/update
+// so the rule can't drift between the three entry points.
+const normalizePhoneAndCnic = ({ phone, cnic }) => {
+  const result = {};
+  if (phone !== undefined) {
+    const digits = normalizeDigits(phone);
+    if (!isValidPhone(digits)) {
+      throw new AppError("Enter a valid 11-digit mobile number starting with 03", 400);
+    }
+    result.phone = digits;
+  }
+  if (cnic !== undefined) {
+    const digits = normalizeDigits(cnic);
+    if (digits && !isValidCnic(digits)) {
+      throw new AppError("CNIC must be exactly 13 digits", 400);
+    }
+    result.cnic = digits || undefined; // clearing the field must unset, not store ""
+  }
+  return result;
+};
 
 const validateSkills = (skills) => {
   if (skills === undefined) return;
@@ -50,6 +71,7 @@ export const createEmployee = async (tenantId, data, userId) => {
   if (!name || !phone) {
     throw new AppError("name and phone are required", 400);
   }
+  const normalized = normalizePhoneAndCnic({ phone, cnic });
   validateSkills(skills);
   if (salary !== undefined && salary < 0) {
     throw new AppError("salary cannot be negative", 400);
@@ -59,8 +81,8 @@ export const createEmployee = async (tenantId, data, userId) => {
   return Employee.create({
     tenantId,
     name,
-    phone,
-    cnic,
+    phone: normalized.phone,
+    cnic: normalized.cnic,
     address,
     skills,
     salary,
@@ -81,10 +103,11 @@ export const enrollEmployee = async (tenantId, data, userId) => {
   if (!name || !phone) {
     throw new AppError("name and phone are required", 400);
   }
+  const normalized = normalizePhoneAndCnic({ phone, cnic });
   if (!email || !password) {
     throw new AppError("email and password are required to grant portal access", 400);
   }
-  if (!EMAIL_REGEX.test(email)) {
+  if (!isValidEmail(email)) {
     throw new AppError("Invalid email format", 400);
   }
   if (password.length < 8) {
@@ -110,8 +133,8 @@ export const enrollEmployee = async (tenantId, data, userId) => {
         {
           tenantId,
           name,
-          phone,
-          cnic,
+          phone: normalized.phone,
+          cnic: normalized.cnic,
           address,
           skills,
           salary,
@@ -165,6 +188,7 @@ export const updateEmployee = async (tenantId, id, data, userId) => {
     "roleId",
   ];
 
+  const normalized = normalizePhoneAndCnic({ phone: data.phone, cnic: data.cnic });
   validateSkills(data.skills);
   if (data.salary !== undefined && data.salary < 0) {
     throw new AppError("salary cannot be negative", 400);
@@ -175,6 +199,8 @@ export const updateEmployee = async (tenantId, id, data, userId) => {
   for (const field of allowedFields) {
     if (data[field] !== undefined) updates[field] = data[field];
   }
+  if (normalized.phone !== undefined) updates.phone = normalized.phone;
+  if (normalized.cnic !== undefined) updates.cnic = normalized.cnic;
   updates.updatedBy = userId;
 
   const employee = await Employee.findOneAndUpdate(

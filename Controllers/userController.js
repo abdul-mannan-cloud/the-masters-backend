@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import User from "../Models/User.js";
 import Tenant from "../Models/Tenant.js";
 import { seedRolesForTenant } from "../utils/seedDefaultRoles.js";
+import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -40,8 +41,7 @@ const signup = async (req, res) => {
         .json({ error: "email, password, and businessName are required" });
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!isValidEmail(email)) {
       return res.status(400).json({ error: "Invalid email format" });
     }
 
@@ -51,6 +51,16 @@ const signup = async (req, res) => {
         .json({ error: "Password must be at least 8 characters" });
     }
 
+    let contactPhoneDigits;
+    if (contactPhone) {
+      contactPhoneDigits = normalizeDigits(contactPhone);
+      if (!isValidPhone(contactPhoneDigits)) {
+        return res
+          .status(400)
+          .json({ error: "Enter a valid 11-digit mobile number starting with 03" });
+      }
+    }
+
     const session = await mongoose.startSession();
     try {
       session.startTransaction();
@@ -58,7 +68,7 @@ const signup = async (req, res) => {
       const slug = await generateUniqueSlug(businessName, session);
 
       const [tenant] = await Tenant.create(
-        [{ businessName, slug, contactEmail: email, contactPhone, address, logo }],
+        [{ businessName, slug, contactEmail: email, contactPhone: contactPhoneDigits, address, logo }],
         { session },
       );
 

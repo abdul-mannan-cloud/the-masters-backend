@@ -13,8 +13,11 @@ const settingsSchema = new mongoose.Schema(
     business: {
       name: { type: String, default: "" },
       logo: { type: String, default: null }, // Cloudinary URL or similar
+      ownerName: { type: String, default: "" },
+      email: { type: String, default: "" },
       address: { type: String, default: "" },
       phone: { type: String, default: "" },
+      workingHours: { type: String, default: "" }, // free-text, e.g. "Mon-Sat 10am-8pm"
       currency: { type: String, default: "PKR" },
       timezone: { type: String, default: "Asia/Karachi" },
     },

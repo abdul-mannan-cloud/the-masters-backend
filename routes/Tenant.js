@@ -24,7 +24,7 @@ router.post(
   upload.single("logo"),
   createTenant,
 );
-router.put("/:id", authentication(), updateTenant);
+router.put("/:id", authentication(), upload.single("logo"), updateTenant);
 router.delete("/:id", authentication("super_admin"), deleteTenant);
 router.patch("/:id/suspend", authentication("super_admin"), suspendTenant);
 router.patch("/:id/activate", authentication("super_admin"), activateTenant);

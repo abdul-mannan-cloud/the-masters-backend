@@ -7,8 +7,8 @@ import AppError from "../utils/AppError.js";
 import * as MeasurementService from "./MeasurementService.js";
 import { computeTotal, generateOrderNumber } from "./OrderService.js";
 import { getNextSequence } from "../utils/counter.js";
+import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_GENDERS = ["male", "female"];
 const VALID_DISCOUNT_TYPES = ["fixed", "percentage"];
 const CUSTOMER_NUMBER_PREFIX = "cust";
@@ -143,7 +143,11 @@ export const createCustomer = async (tenantId, data, userId) => {
   if (!name || !phone) {
     throw new AppError("name and phone are required", 400);
   }
-  if (email && !EMAIL_REGEX.test(email)) {
+  const phoneDigits = normalizeDigits(phone);
+  if (!isValidPhone(phoneDigits)) {
+    throw new AppError("Enter a valid 11-digit mobile number starting with 03", 400);
+  }
+  if (email && !isValidEmail(email)) {
     throw new AppError("Invalid email format", 400);
   }
   if (gender && !VALID_GENDERS.includes(gender)) {
@@ -157,7 +161,7 @@ export const createCustomer = async (tenantId, data, userId) => {
   }
 
   // Phone uniqueness is scoped per tenant — see unique index on { tenantId, phone }
-  const existing = await Customer.findOne({ tenantId, phone });
+  const existing = await Customer.findOne({ tenantId, phone: phoneDigits });
   if (existing) {
     throw new AppError("A customer with this phone number already exists", 409);
   }
@@ -165,7 +169,7 @@ export const createCustomer = async (tenantId, data, userId) => {
   const customerFields = {
     tenantId,
     name,
-    phone,
+    phone: phoneDigits,
     address,
     email,
     gender: gender || undefined, // "" from an unselected dropdown must stay unset, not an invalid enum value
@@ -229,7 +233,13 @@ export const createCustomer = async (tenantId, data, userId) => {
 export const updateCustomer = async (tenantId, id, data, userId) => {
   const allowedFields = ["name", "phone", "address", "email", "gender", "notes"];
 
-  if (data.email && !EMAIL_REGEX.test(data.email)) {
+  if (data.phone) {
+    data.phone = normalizeDigits(data.phone);
+    if (!isValidPhone(data.phone)) {
+      throw new AppError("Enter a valid 11-digit mobile number starting with 03", 400);
+    }
+  }
+  if (data.email && !isValidEmail(data.email)) {
     throw new AppError("Invalid email format", 400);
   }
   if (data.gender && !VALID_GENDERS.includes(data.gender)) {
