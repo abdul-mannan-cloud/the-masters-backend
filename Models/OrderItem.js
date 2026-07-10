@@ -28,6 +28,14 @@ const orderItemSchema = new mongoose.Schema(
       ref: "ProductType",
       required: true,
     },
+    // SNAPSHOT — copied from ProductType.name at order creation time, same
+    // convention as unitPrice. A ProductType renamed later must not change
+    // how this garment reads on a historical bill/invoice.
+    garmentType: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     measurementId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Measurement",

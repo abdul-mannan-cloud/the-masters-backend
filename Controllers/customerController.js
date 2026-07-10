@@ -2,6 +2,7 @@ import * as CustomerService from "../Services/CustomerService.js";
 import sendErrorResponse from "../utils/errorHandler.js";
 import isValidObjectId from "../utils/validateObjectId.js";
 import AppError from "../utils/AppError.js";
+import hasPermission from "../utils/hasPermission.js";
 
 export const getAllCustomers = async (req, res) => {
   try {
@@ -30,10 +31,15 @@ export const getCustomerById = async (req, res) => {
 
 export const createCustomer = async (req, res) => {
   try {
+    // Overriding a garment's price during registration is an "orders.update"-
+    // level capability, not "customers.create" — check it once here rather
+    // than trusting whatever the client sends.
+    const canAdjustPrice = await hasPermission(req.user, "orders", "update");
     const { customer, measurements, order } = await CustomerService.createCustomer(
       req.user.tenantId,
       req.body,
       req.user.userId,
+      canAdjustPrice,
     );
     return res.status(201).json({
       message: "Customer created successfully.",

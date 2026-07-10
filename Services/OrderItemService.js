@@ -74,13 +74,14 @@ export const createOrderItem = async (tenantId, data, userId) => {
     }).session(session);
     if (!measurement) throw new AppError("Measurement not found for this tenant", 404);
 
-    // SNAPSHOT — copy the price now; ProductType.basePrice changes later must not affect this item
+    // SNAPSHOT — copy the price and name now; ProductType changes later must not affect this item
     const [item] = await OrderItem.create(
       [
         {
           tenantId,
           orderId,
           productTypeId,
+          garmentType: productType.name,
           measurementId,
           selectedOptions,
           quantity,

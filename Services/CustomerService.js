@@ -33,12 +33,34 @@ export const getCustomerById = async (tenantId, id) => {
   return customer;
 };
 
+// Each selected option must name a real option on the ProductType, with a
+// value from that option's own list — otherwise a garment could be billed
+// for a customization that was never actually offered.
+const validateSelectedOptions = (productType, selectedOptions) => {
+  if (!selectedOptions || selectedOptions.length === 0) return;
+  for (const { name, value } of selectedOptions) {
+    const option = productType.options.find((o) => o.name === name);
+    if (!option) {
+      throw new AppError(`"${name}" is not a valid option for ${productType.name}`, 400);
+    }
+    if (!option.values.includes(value)) {
+      throw new AppError(`"${value}" is not a valid value for option "${name}"`, 400);
+    }
+  }
+};
+
 // Places the customer's very first order in the same transaction as their
 // creation. Every item references one of the measurements just captured (by
 // its index in that array) — a brand-new customer can't have any other
 // measurements on file yet. This mirrors OrderService.createOrder +
 // OrderItemService.createOrderItem, inlined here so "add customer + take
 // measurement + place order" is one atomic write instead of three requests.
+//
+// `canAdjustPrice` gates whether an item's `unitPrice` override (if sent) is
+// honored — anyone without it always gets the ProductType's basePrice,
+// regardless of what the client sends. Checked once by the caller
+// (CustomerController, via utils/hasPermission against "orders"/"update")
+// rather than per-item, since it's one registration-wide capability.
 const createOrderForNewCustomer = async (
   tenantId,
   customer,
@@ -46,6 +68,7 @@ const createOrderForNewCustomer = async (
   orderData,
   userId,
   session,
+  canAdjustPrice,
 ) => {
   const { deliveryDate, discount = 0, discountType = "fixed", notes, items } = orderData;
 
@@ -81,7 +104,14 @@ const createOrderForNewCustomer = async (
 
   let subtotal = 0;
   for (const rawItem of items) {
-    const { measurementIndex, productTypeId, selectedOptions, quantity = 1, instructions } = rawItem;
+    const {
+      measurementIndex,
+      productTypeId,
+      selectedOptions,
+      quantity = 1,
+      instructions,
+      unitPrice: requestedUnitPrice,
+    } = rawItem;
 
     const measurement = createdMeasurements[measurementIndex];
     if (!measurement) {
@@ -104,17 +134,31 @@ const createOrderForNewCustomer = async (
     }).session(session);
     if (!productType) throw new AppError("Product type not found for this tenant", 404);
 
-    // SNAPSHOT — copy the price now; ProductType.basePrice changes later must not affect this item
+    validateSelectedOptions(productType, selectedOptions);
+
+    // Default price always comes from the ProductType; an adjusted price is
+    // only ever honored if the caller was found permitted (see canAdjustPrice
+    // above) — otherwise a client-sent unitPrice is silently ignored.
+    let unitPrice = productType.basePrice;
+    if (canAdjustPrice && requestedUnitPrice !== undefined) {
+      if (requestedUnitPrice < 0) {
+        throw new AppError("unitPrice cannot be negative", 400);
+      }
+      unitPrice = requestedUnitPrice;
+    }
+
+    // SNAPSHOT — copy the price/name now; ProductType changes later must not affect this item
     await OrderItem.create(
       [
         {
           tenantId,
           orderId: order._id,
           productTypeId,
+          garmentType: productType.name,
           measurementId: measurement._id,
           selectedOptions,
           quantity,
-          unitPrice: productType.basePrice,
+          unitPrice,
           instructions,
           createdBy: userId,
           updatedBy: userId,
@@ -127,7 +171,7 @@ const createOrderForNewCustomer = async (
     measurement.lockedForOrder = true;
     await measurement.save({ session });
 
-    subtotal += productType.basePrice * quantity;
+    subtotal += unitPrice * quantity;
   }
 
   order.subtotal = subtotal;
@@ -137,7 +181,7 @@ const createOrderForNewCustomer = async (
   return order;
 };
 
-export const createCustomer = async (tenantId, data, userId) => {
+export const createCustomer = async (tenantId, data, userId, canAdjustPrice = false) => {
   const { name, phone, address, email, gender, notes, measurements, order } = data;
 
   if (!name || !phone) {
@@ -217,6 +261,7 @@ export const createCustomer = async (tenantId, data, userId) => {
         order,
         userId,
         session,
+        canAdjustPrice,
       );
     }
 

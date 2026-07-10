@@ -29,10 +29,20 @@ const paymentSchema = new mongoose.Schema(
       ],
       required: true,
     },
+    // "refund" is a reversal record — its amount is SUBTRACTED when computing
+    // how much has actually been paid (see PaymentService.sumPayments). Used
+    // to correct a mistaken payment without ever editing/deleting the
+    // original — payment history must stay append-only.
     paymentType: {
       type: String,
-      enum: ["advance", "partial", "final"],
+      enum: ["advance", "partial", "final", "refund"],
       required: true,
+    },
+    // Set only on a "refund" record — points back at the payment it reverses.
+    reversalOf: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Payment",
+      default: null,
     },
     paymentDate: {
       type: Date,

@@ -22,6 +22,7 @@ import dashboardRoutes from "./routes/Dashboard.js";
 import seedSuperAdmin from "./utils/seedSuperAdmin.js";
 import { backfillRolesForExistingTenants } from "./utils/seedDefaultRoles.js";
 import { backfillCustomerNumbers } from "./utils/backfillCustomerNumbers.js";
+import { backfillTenantSoftDelete } from "./utils/backfillTenantSoftDelete.js";
 
 // import clothRoutes from "./routes/Cloths.js";
 // import productRoutes from "./routes/Product.js";
@@ -70,6 +71,7 @@ mongoose
   .then(async () => {
     console.log("Database connected");
     await seedSuperAdmin();
+    await backfillTenantSoftDelete();
     await backfillRolesForExistingTenants();
     await backfillCustomerNumbers();
     app.listen(port, () => {

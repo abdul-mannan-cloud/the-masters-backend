@@ -76,3 +76,60 @@ export const deleteOrder = async (req, res) => {
     return sendErrorResponse(res, err);
   }
 };
+
+export const getBill = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid order ID format", 400);
+    }
+    const bill = await OrderService.getBill(req.user.tenantId, id);
+    return res.status(200).json(bill);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const getCheckout = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid order ID format", 400);
+    }
+    const checkout = await OrderService.getCheckout(req.user.tenantId, id);
+    return res.status(200).json(checkout);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const getOrderDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid order ID format", 400);
+    }
+    const details = await OrderService.getOrderDetails(req.user.tenantId, id);
+    return res.status(200).json(details);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+export const applyDiscount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid order ID format", 400);
+    }
+    const order = await OrderService.applyDiscount(
+      req.user.tenantId,
+      id,
+      req.body,
+      req.user.userId,
+    );
+    return res.status(200).json({ message: "Discount applied successfully.", order });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};

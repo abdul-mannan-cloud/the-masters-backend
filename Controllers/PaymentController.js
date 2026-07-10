@@ -9,8 +9,23 @@ export const getAllPayments = async (req, res) => {
     if (orderId && !isValidObjectId(orderId)) {
       throw new AppError("Invalid orderId format", 400);
     }
-    const payments = await PaymentService.listPayments(req.user.tenantId, orderId);
+    const payments = await PaymentService.getPayments(req.user.tenantId, orderId);
     return res.status(200).json(payments);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+// Payment History table — same records as getAllPayments, with recordedBy
+// resolved to a display name.
+export const getPaymentHistory = async (req, res) => {
+  try {
+    const { orderId } = req.query;
+    if (orderId && !isValidObjectId(orderId)) {
+      throw new AppError("Invalid orderId format", 400);
+    }
+    const history = await PaymentService.getPaymentHistory(req.user.tenantId, orderId);
+    return res.status(200).json(history);
   } catch (err) {
     return sendErrorResponse(res, err);
   }
@@ -29,11 +44,15 @@ export const getPaymentById = async (req, res) => {
   }
 };
 
-export const createPayment = async (req, res) => {
+export const addPayment = async (req, res) => {
   try {
-    const payment = await PaymentService.createPayment(
+    // Accountability is automatic — whoever is logged in when the payment is
+    // recorded, not a manually-picked name (tenant_admin/manager accounts
+    // have no linked Employee profile, so this is simply omitted for them).
+    const data = { ...req.body, recordedBy: req.body.recordedBy || req.user.employeeId || undefined };
+    const payment = await PaymentService.addPayment(
       req.user.tenantId,
-      req.body,
+      data,
       req.user.userId,
     );
     return res.status(201).json({ message: "Payment recorded successfully.", payment });
@@ -60,14 +79,20 @@ export const updatePayment = async (req, res) => {
   }
 };
 
-export const deletePayment = async (req, res) => {
+export const reversePayment = async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidObjectId(id)) {
       throw new AppError("Invalid payment ID format", 400);
     }
-    await PaymentService.deletePayment(req.user.tenantId, id);
-    return res.status(200).json({ message: "Payment deleted successfully." });
+    const data = { ...req.body, recordedBy: req.body.recordedBy || req.user.employeeId || undefined };
+    const reversal = await PaymentService.reversePayment(
+      req.user.tenantId,
+      id,
+      data,
+      req.user.userId,
+    );
+    return res.status(201).json({ message: "Payment reversed successfully.", payment: reversal });
   } catch (err) {
     return sendErrorResponse(res, err);
   }
