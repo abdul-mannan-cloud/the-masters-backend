@@ -66,6 +66,7 @@ const orderSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+<<<<<<< HEAD
     // Set once "Confirm Order" runs — the point at which fabric is deducted
     // from Inventory. Null means inventory has not been touched yet, so
     // cancelling before this is set never needs a restore.
@@ -86,6 +87,25 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+=======
+    whatsappUpdateSent: {
+        type: Boolean,
+        default: false
+    },
+    whatsappUpdateSentAt: {
+        type: Date
+    },
+    whatsappMessageId: {
+        type: String
+    },
+    lastUpdated: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    timestamps: true
+});
+>>>>>>> 473813dbabe27cd5035947f9441595cc9e0f3535
 
 // Order number is unique within a tenant (two tenants can both have "ORD-001")
 orderSchema.index({ tenantId: 1, orderNumber: 1 }, { unique: true });
