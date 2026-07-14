@@ -59,6 +59,26 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    // Fabric tracking is optional — not every garment draws from Inventory.
+    fabricId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Inventory",
+      default: null,
+    },
+    // How much fabric this garment consumes, e.g. 2.75. Stock is only
+    // deducted when the Order is confirmed, not when the item is created.
+    requiredFabricLength: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+    // SNAPSHOT of Inventory.unit at the time the fabric was picked — a later
+    // change to the Inventory item's unit must not change how this item reads.
+    fabricUnit: {
+      type: String,
+      enum: ["meter", "yard", "piece", "roll", null],
+      default: null,
+    },
     instructions: {
       type: String,
       trim: true,

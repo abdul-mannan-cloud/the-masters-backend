@@ -6,6 +6,7 @@ import ProductType from "../Models/ProductType.js";
 import AppError from "../utils/AppError.js";
 import * as MeasurementService from "./MeasurementService.js";
 import { computeTotal, generateOrderNumber } from "./OrderService.js";
+import { resolveFabricSnapshot } from "./OrderItemService.js";
 import { getNextSequence } from "../utils/counter.js";
 import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 
@@ -111,6 +112,8 @@ const createOrderForNewCustomer = async (
       quantity = 1,
       instructions,
       unitPrice: requestedUnitPrice,
+      fabricId,
+      requiredFabricLength,
     } = rawItem;
 
     const measurement = createdMeasurements[measurementIndex];
@@ -135,6 +138,12 @@ const createOrderForNewCustomer = async (
     if (!productType) throw new AppError("Product type not found for this tenant", 404);
 
     validateSelectedOptions(productType, selectedOptions);
+    const fabricSnapshot = await resolveFabricSnapshot(
+      tenantId,
+      fabricId,
+      requiredFabricLength,
+      session,
+    );
 
     // Default price always comes from the ProductType; an adjusted price is
     // only ever honored if the caller was found permitted (see canAdjustPrice
@@ -160,6 +169,7 @@ const createOrderForNewCustomer = async (
           quantity,
           unitPrice,
           instructions,
+          ...fabricSnapshot,
           createdBy: userId,
           updatedBy: userId,
         },

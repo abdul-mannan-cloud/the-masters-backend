@@ -13,10 +13,12 @@ receptionistPermissions.dashboard.view = true;
 receptionistPermissions.customers = { view: true, create: true, update: true, delete: false };
 receptionistPermissions.measurements = { view: true, create: true, update: true, delete: false };
 receptionistPermissions.orders = { view: true, create: true, update: true, delete: false };
+receptionistPermissions.inventory.view = true;
 
 const tailorPermissions = buildPermissionsObject(false);
 tailorPermissions.dashboard.view = true;
 tailorPermissions.orders.view = true;
+tailorPermissions.inventory.view = true;
 
 const DEFAULT_ROLE_DEFINITIONS = [
   {

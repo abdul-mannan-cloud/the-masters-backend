@@ -116,6 +116,19 @@ export const getOrderDetails = async (req, res) => {
   }
 };
 
+export const confirmOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid order ID format", 400);
+    }
+    const order = await OrderService.confirmOrder(req.user.tenantId, id, req.user.userId);
+    return res.status(200).json({ message: "Order confirmed successfully.", order });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
 export const applyDiscount = async (req, res) => {
   try {
     const { id } = req.params;

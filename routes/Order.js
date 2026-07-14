@@ -9,6 +9,7 @@ import {
   getCheckout,
   getOrderDetails,
   applyDiscount,
+  confirmOrder,
 } from "../Controllers/OrderController.js";
 import authentication from "../middlewares/authMiddleware.js";
 import authorize from "../middlewares/permissionMiddleware.js";
@@ -27,6 +28,12 @@ router.patch(
   authentication("tenant_admin", "manager", "employee"),
   authorize("orders", "update"),
   applyDiscount,
+);
+router.patch(
+  "/:id/confirm",
+  authentication("tenant_admin", "manager", "employee"),
+  authorize("orders", "update"),
+  confirmOrder,
 );
 // Order deletion cascades to OrderItems/Assignments/Payments — kept tenant_admin-only
 // regardless of Role permissions, same intentionally stricter policy as before this feature.

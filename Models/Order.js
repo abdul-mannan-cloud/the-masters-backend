@@ -66,6 +66,13 @@ const orderSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    // Set once "Confirm Order" runs — the point at which fabric is deducted
+    // from Inventory. Null means inventory has not been touched yet, so
+    // cancelling before this is set never needs a restore.
+    confirmedAt: {
+      type: Date,
+      default: null,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

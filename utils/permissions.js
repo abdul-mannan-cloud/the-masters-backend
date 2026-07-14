@@ -11,6 +11,7 @@ export const PERMISSION_MODULES = [
   "payments",
   "notifications",
   "settings",
+  "inventory",
 ];
 
 export const PERMISSION_ACTIONS = ["view", "create", "update", "delete"];

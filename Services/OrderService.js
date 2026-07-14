@@ -13,6 +13,7 @@ import {
   calculateRemainingBalance,
   getPaymentHistory,
 } from "./PaymentService.js";
+import { validateStock, deductInventory, restoreInventory } from "./InventoryService.js";
 
 const VALID_DISCOUNT_TYPES = ["fixed", "percentage"];
 const VALID_PRODUCTION_STATUSES = [
@@ -155,12 +156,49 @@ export const updateOrder = async (tenantId, id, data, userId) => {
     );
   }
 
-  if (deliveryDate !== undefined) order.deliveryDate = deliveryDate;
-  if (paymentStatus !== undefined) order.paymentStatus = paymentStatus;
-  if (productionStatus !== undefined) order.productionStatus = productionStatus;
-  if (notes !== undefined) order.notes = notes;
-  order.updatedBy = userId;
-  await order.save();
+  // Cancelling an order that was already confirmed (fabric deducted) but
+  // whose production had not yet started must give the fabric back.
+  // Cancelling after production has started is still allowed — it just
+  // skips the restore, since the fabric may already be cut/consumed.
+  const needsInventoryRestore =
+    productionStatus === "cancelled" &&
+    order.productionStatus === "pending" &&
+    !!order.confirmedAt;
+
+  if (needsInventoryRestore) {
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+
+      if (deliveryDate !== undefined) order.deliveryDate = deliveryDate;
+      if (paymentStatus !== undefined) order.paymentStatus = paymentStatus;
+      order.productionStatus = productionStatus;
+      if (notes !== undefined) order.notes = notes;
+      order.updatedBy = userId;
+      await order.save({ session });
+
+      const items = await OrderItem.find({
+        orderId: id,
+        tenantId,
+        fabricId: { $ne: null },
+      }).session(session);
+      await restoreInventory(tenantId, items, id, userId, session);
+
+      await session.commitTransaction();
+    } catch (err) {
+      await session.abortTransaction();
+      throw err;
+    } finally {
+      session.endSession();
+    }
+  } else {
+    if (deliveryDate !== undefined) order.deliveryDate = deliveryDate;
+    if (paymentStatus !== undefined) order.paymentStatus = paymentStatus;
+    if (productionStatus !== undefined) order.productionStatus = productionStatus;
+    if (notes !== undefined) order.notes = notes;
+    order.updatedBy = userId;
+    await order.save();
+  }
 
   // Discount changes go through the dedicated helper so "change discount →
   // recalc total → leave Payment history untouched" stays a single code path
@@ -219,6 +257,53 @@ export const applyDiscount = async (tenantId, orderId, data, userId) => {
   await order.save();
 
   return order;
+};
+
+// "Confirm Order" — the point at which fabric is actually deducted from
+// Inventory. Validates every fabric-tracked item has enough stock first
+// (all-or-nothing: a single short fabric blocks the whole confirmation),
+// then deducts and writes an InventoryTransaction per item, atomically.
+export const confirmOrder = async (tenantId, orderId, userId) => {
+  const order = await Order.findOne({ _id: orderId, tenantId });
+  if (!order) throw new AppError("Order not found", 404);
+  if (["completed", "delivered", "cancelled"].includes(order.productionStatus)) {
+    throw new AppError(
+      `Order is already ${order.productionStatus} and cannot be confirmed`,
+      409,
+    );
+  }
+  if (order.confirmedAt) {
+    throw new AppError("Order has already been confirmed", 409);
+  }
+
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+
+    const items = await OrderItem.find({
+      orderId,
+      tenantId,
+      status: { $ne: "cancelled" },
+      fabricId: { $ne: null },
+    }).session(session);
+
+    if (items.length) {
+      await validateStock(tenantId, items, session);
+      await deductInventory(tenantId, items, orderId, userId, session);
+    }
+
+    order.confirmedAt = new Date();
+    order.updatedBy = userId;
+    await order.save({ session });
+
+    await session.commitTransaction();
+    return order;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
 export const deleteOrder = async (tenantId, id) => {
@@ -292,6 +377,9 @@ export const getBill = async (tenantId, orderId) => {
       subtotal: item.unitPrice * item.quantity,
       instructions: item.instructions,
       status: item.status,
+      fabricId: item.fabricId,
+      requiredFabricLength: item.requiredFabricLength,
+      fabricUnit: item.fabricUnit,
     })),
   };
 };
@@ -368,6 +456,9 @@ export const getOrderDetails = async (tenantId, orderId) => {
     subtotal: item.unitPrice * item.quantity,
     instructions: item.instructions,
     status: item.status,
+    fabricId: item.fabricId,
+    requiredFabricLength: item.requiredFabricLength,
+    fabricUnit: item.fabricUnit,
     measurement: measurementById[String(item.measurementId)] || null,
     assignedEmployees: assignments
       .filter((a) => String(a.orderItemId) === String(item._id))

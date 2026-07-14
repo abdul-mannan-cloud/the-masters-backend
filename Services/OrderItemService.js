@@ -3,6 +3,7 @@ import OrderItem from "../Models/OrderItem.js";
 import Order from "../Models/Order.js";
 import ProductType from "../Models/ProductType.js";
 import Measurement from "../Models/Measurement.js";
+import Inventory from "../Models/Inventory.js";
 import AppError from "../utils/AppError.js";
 import { recalculateOrderTotals } from "./OrderService.js";
 
@@ -42,9 +43,37 @@ export const getOrderItemById = async (tenantId, id) => {
   return item;
 };
 
+// Fabric is optional. Validated against Inventory here (tenant-scoped, not
+// deleted) but never deducted here — stock is only touched when the Order is
+// confirmed (see OrderService.confirmOrder). fabricUnit is a snapshot of
+// Inventory.unit at pick time so a later unit change can't alter this item.
+export const resolveFabricSnapshot = async (tenantId, fabricId, requiredFabricLength, session) => {
+  if (!fabricId) return { fabricId: null, requiredFabricLength: null, fabricUnit: null };
+  if (!requiredFabricLength || requiredFabricLength <= 0) {
+    throw new AppError("requiredFabricLength must be greater than 0 when fabricId is set", 400);
+  }
+
+  const inventory = await Inventory.findOne({
+    _id: fabricId,
+    tenantId,
+    isDeleted: false,
+  }).session(session);
+  if (!inventory) throw new AppError("Inventory item not found for this tenant", 404);
+
+  return { fabricId, requiredFabricLength, fabricUnit: inventory.unit };
+};
+
 export const createOrderItem = async (tenantId, data, userId) => {
-  const { orderId, productTypeId, measurementId, selectedOptions, quantity = 1, instructions } =
-    data;
+  const {
+    orderId,
+    productTypeId,
+    measurementId,
+    selectedOptions,
+    quantity = 1,
+    instructions,
+    fabricId,
+    requiredFabricLength,
+  } = data;
 
   if (!orderId || !productTypeId || !measurementId) {
     throw new AppError("orderId, productTypeId, and measurementId are required", 400);
@@ -74,6 +103,13 @@ export const createOrderItem = async (tenantId, data, userId) => {
     }).session(session);
     if (!measurement) throw new AppError("Measurement not found for this tenant", 404);
 
+    const fabricSnapshot = await resolveFabricSnapshot(
+      tenantId,
+      fabricId,
+      requiredFabricLength,
+      session,
+    );
+
     // SNAPSHOT — copy the price and name now; ProductType changes later must not affect this item
     const [item] = await OrderItem.create(
       [
@@ -87,6 +123,7 @@ export const createOrderItem = async (tenantId, data, userId) => {
           quantity,
           unitPrice: productType.basePrice,
           instructions,
+          ...fabricSnapshot,
           createdBy: userId,
           updatedBy: userId,
         },
@@ -111,7 +148,8 @@ export const createOrderItem = async (tenantId, data, userId) => {
 };
 
 export const updateOrderItem = async (tenantId, id, data, userId) => {
-  const { selectedOptions, quantity, instructions, status } = data;
+  const { selectedOptions, quantity, instructions, status, fabricId, requiredFabricLength } =
+    data;
 
   if (quantity !== undefined && quantity < 1) {
     throw new AppError("quantity must be at least 1", 400);
@@ -136,6 +174,27 @@ export const updateOrderItem = async (tenantId, id, data, userId) => {
     if (quantity !== undefined) item.quantity = quantity;
     if (instructions !== undefined) item.instructions = instructions;
     if (status !== undefined) item.status = status;
+
+    // Fabric can only be changed before the order is confirmed — once
+    // confirmed, stock has already been deducted against the original pick.
+    if (fabricId !== undefined || requiredFabricLength !== undefined) {
+      if (order.confirmedAt) {
+        throw new AppError(
+          "Order has already been confirmed — fabric selection can no longer be changed",
+          409,
+        );
+      }
+      const fabricSnapshot = await resolveFabricSnapshot(
+        tenantId,
+        fabricId !== undefined ? fabricId : item.fabricId,
+        requiredFabricLength !== undefined ? requiredFabricLength : item.requiredFabricLength,
+        session,
+      );
+      item.fabricId = fabricSnapshot.fabricId;
+      item.requiredFabricLength = fabricSnapshot.requiredFabricLength;
+      item.fabricUnit = fabricSnapshot.fabricUnit;
+    }
+
     item.updatedBy = userId;
 
     await item.save({ session });
