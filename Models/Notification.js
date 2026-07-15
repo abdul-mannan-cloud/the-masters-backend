@@ -20,7 +20,7 @@ const notificationSchema = new mongoose.Schema(
     // The delivery mechanism used
     channel: {
       type: String,
-      enum: ["whatsapp", "sms", "email", "in_app"],
+      enum: ["sms", "email", "in_app"],
       required: true,
     },
     // Category of notification — used for filtering and analytics
@@ -46,7 +46,7 @@ const notificationSchema = new mongoose.Schema(
       enum: ["pending", "sent", "delivered", "failed", "read"],
       default: "pending",
     },
-    // ID returned by the messaging provider, e.g., WhatsApp wamid
+    // ID returned by the messaging provider
     // Used to match delivery receipt webhooks back to this record
     providerMessageId: {
       type: String,

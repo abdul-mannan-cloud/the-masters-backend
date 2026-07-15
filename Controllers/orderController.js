@@ -146,16 +146,3 @@ export const applyDiscount = async (req, res) => {
     return sendErrorResponse(res, err);
   }
 };
-
-export const sendOrderUpdateWhatsApp = async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!isValidObjectId(id)) {
-      throw new AppError("Invalid order ID format", 400);
-    }
-    const result = await OrderService.notifyWhatsApp(req.user.tenantId, id);
-    return res.status(200).json({ message: "WhatsApp message sent successfully.", ...result });
-  } catch (err) {
-    return sendErrorResponse(res, err);
-  }
-};

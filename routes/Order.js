@@ -10,7 +10,6 @@ import {
   getOrderDetails,
   applyDiscount,
   confirmOrder,
-  sendOrderUpdateWhatsApp,
 } from "../Controllers/OrderController.js";
 import authentication from "../middlewares/authMiddleware.js";
 import authorize from "../middlewares/permissionMiddleware.js";
@@ -39,11 +38,5 @@ router.patch(
 // Order deletion cascades to OrderItems/Assignments/Payments — kept tenant_admin-only
 // regardless of Role permissions, same intentionally stricter policy as before this feature.
 router.delete("/:id", authentication("tenant_admin"), authorize("orders", "delete"), deleteOrder);
-router.post(
-  "/:id/notify-whatsapp",
-  authentication("tenant_admin", "manager", "employee"),
-  authorize("orders", "update"),
-  sendOrderUpdateWhatsApp,
-);
 
 export default router;

@@ -3,7 +3,7 @@ import Customer from "../Models/Customer.js";
 import Order from "../Models/Order.js";
 import AppError from "../utils/AppError.js";
 
-const VALID_CHANNELS = ["whatsapp", "sms", "email", "in_app"];
+const VALID_CHANNELS = ["sms", "email", "in_app"];
 const VALID_STATUSES = ["pending", "sent", "delivered", "failed", "read"];
 
 export const listNotifications = async (tenantId, filters = {}) => {

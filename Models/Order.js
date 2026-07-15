@@ -73,21 +73,6 @@ const orderSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    // Tracks the last WhatsApp status-update notification sent for this order
-    // (see OrderService.notifyWhatsApp) — never blocks anything, purely an
-    // audit trail of what was sent and when.
-    whatsappUpdateSent: {
-      type: Boolean,
-      default: false,
-    },
-    whatsappUpdateSentAt: {
-      type: Date,
-      default: null,
-    },
-    whatsappMessageId: {
-      type: String,
-      default: null,
-    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

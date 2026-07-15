@@ -17,7 +17,7 @@ const BUSINESS_TO_TENANT_FIELD = {
   address: "address",
 };
 
-const SECTION_FIELDS = ["business", "invoice", "whatsapp", "notifications"];
+const SECTION_FIELDS = ["business", "invoice", "notifications"];
 
 export const getSettings = async (tenantId, userId) => {
   // One Settings document per tenant — create it with defaults on first access
