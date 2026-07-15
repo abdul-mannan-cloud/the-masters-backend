@@ -6,6 +6,7 @@ import Payment from "../Models/Payment.js";
 import Customer from "../Models/Customer.js";
 import Measurement from "../Models/Measurement.js";
 import Employee from "../Models/Employee.js";
+import Settings from "../Models/Settings.js";
 import AppError from "../utils/AppError.js";
 import { getNextSequence } from "../utils/counter.js";
 import {
@@ -486,6 +487,78 @@ export const getOrderDetails = async (tenantId, orderId) => {
       paymentStatus: order.paymentStatus,
     },
   };
+};
+
+// Sends a plain-text WhatsApp status update for this order to the customer,
+// using the tenant's own WhatsApp Business API credentials (Settings.whatsapp
+// — configured per-tenant on the Business Info page, never a shared/global
+// token). Uses a plain "text" message rather than a pre-approved template, so
+// it only works within WhatsApp's 24-hour customer-service window; that's a
+// WhatsApp platform rule, not something this app can work around.
+export const notifyWhatsApp = async (tenantId, orderId) => {
+  const order = await getOrderById(tenantId, orderId);
+  const customer = await Customer.findOne({ _id: order.customerId, tenantId });
+  if (!customer) throw new AppError("Customer not found for this tenant", 404);
+  if (!customer.phone) throw new AppError("Customer has no phone number on file", 400);
+
+  const settings = await Settings.findOne({ tenantId });
+  if (!settings?.whatsapp?.enabled) {
+    throw new AppError("WhatsApp notifications are not enabled for this business", 400);
+  }
+  const { phoneNumberId, accessToken } = settings.whatsapp;
+  if (!phoneNumberId || !accessToken) {
+    throw new AppError("WhatsApp is enabled but not fully configured — check Business Info", 400);
+  }
+
+  // Pakistani mobile numbers are stored as 11 digits starting "03" (see
+  // utils/validators.js) — WhatsApp's Cloud API wants the international
+  // form, country code 92 replacing the leading 0.
+  const to = `92${customer.phone.slice(1)}`;
+
+  const payments = await getPaymentHistory(tenantId, orderId);
+  const totalPaid = sumPayments(payments);
+  const remainingBalance = calculateRemainingBalance(order.total, totalPaid);
+
+  const message =
+    `Hi ${customer.name}, your order ${order.orderNumber} status is now: ` +
+    `${order.productionStatus.replace("_", " ")}. ` +
+    `Total: Rs. ${order.total.toLocaleString()}, Paid: Rs. ${totalPaid.toLocaleString()}, ` +
+    `Remaining: Rs. ${remainingBalance.toLocaleString()}.`;
+
+  const apiUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
+  let response;
+  try {
+    response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: message },
+      }),
+    });
+  } catch {
+    throw new AppError("Could not reach the WhatsApp API", 502);
+  }
+
+  const responseData = await response.json();
+  if (!response.ok) {
+    throw new AppError(
+      responseData?.error?.message || "WhatsApp API rejected the message",
+      502,
+    );
+  }
+
+  order.whatsappUpdateSent = true;
+  order.whatsappUpdateSentAt = new Date();
+  order.whatsappMessageId = responseData?.messages?.[0]?.id || null;
+  await order.save();
+
+  return { to, message, whatsappMessageId: order.whatsappMessageId };
 };
 
 export { computeTotal, generateOrderNumber, VALID_PRODUCTION_STATUSES };

@@ -6,12 +6,26 @@ import Employee from "../Models/Employee.js";
 import Customer from "../Models/Customer.js";
 import Order from "../Models/Order.js";
 import Payment from "../Models/Payment.js";
+import Settings from "../Models/Settings.js";
 import AppError from "../utils/AppError.js";
 import { seedRolesForTenant } from "../utils/seedDefaultRoles.js";
 import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 
 const VALID_PLANS = ["free", "basic", "pro", "enterprise"];
 const VALID_STATUSES = ["active", "suspended", "cancelled"];
+
+// Mirror of SettingsService's BUSINESS_TO_TENANT_FIELD, reversed — Tenant's
+// own copy of the business profile is edited here (super_admin's Tenant
+// form), Settings.business is edited from the tenant's own Business Info
+// page. Both write paths must keep the other collection in sync or one of
+// the two screens goes stale. See SettingsService.js for the other half.
+const TENANT_TO_BUSINESS_FIELD = {
+  businessName: "name",
+  logo: "logo",
+  contactEmail: "email",
+  contactPhone: "phone",
+  address: "address",
+};
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -193,13 +207,45 @@ export const updateTenant = async (id, data, userId) => {
 
   updates.updatedBy = userId;
 
-  const tenant = await Tenant.findOneAndUpdate(
-    { _id: id, isDeleted: false },
-    updates,
-    { new: true, runValidators: true },
-  );
-  if (!tenant) throw new AppError("Tenant not found", 404);
-  return tenant;
+  // Mirror whichever fields changed onto Settings.business.* — see
+  // TENANT_TO_BUSINESS_FIELD above. Settings may not exist yet for this
+  // tenant (created lazily on first Business Info visit), so upsert.
+  const businessMirror = {};
+  for (const [tenantField, businessKey] of Object.entries(TENANT_TO_BUSINESS_FIELD)) {
+    if (updates[tenantField] !== undefined) {
+      businessMirror[`business.${businessKey}`] = updates[tenantField];
+    }
+  }
+  const hasBusinessMirror = Object.keys(businessMirror).length > 0;
+
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+
+    const [tenant] = await Promise.all([
+      Tenant.findOneAndUpdate({ _id: id, isDeleted: false }, updates, {
+        new: true,
+        runValidators: true,
+        session,
+      }),
+      hasBusinessMirror
+        ? Settings.findOneAndUpdate(
+            { tenantId: id },
+            { $set: { ...businessMirror, updatedBy: userId } },
+            { upsert: true, session },
+          )
+        : Promise.resolve(null),
+    ]);
+    if (!tenant) throw new AppError("Tenant not found", 404);
+
+    await session.commitTransaction();
+    return tenant;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
 export const setTenantStatus = async (id, status, userId) => {
