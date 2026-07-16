@@ -1,17 +1,9 @@
-import mongoose from "mongoose";
 import Customer from "../Models/Customer.js";
-import Order from "../Models/Order.js";
-import OrderItem from "../Models/OrderItem.js";
-import ProductType from "../Models/ProductType.js";
 import AppError from "../utils/AppError.js";
-import * as MeasurementService from "./MeasurementService.js";
-import { computeTotal, generateOrderNumber } from "./OrderService.js";
-import { resolveFabricSnapshot } from "./OrderItemService.js";
 import { getNextSequence } from "../utils/counter.js";
-import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
+import { normalizeDigits, isValidPhone, isValidCnic, isValidEmail } from "../utils/validators.js";
 
 const VALID_GENDERS = ["male", "female", "other"];
-const VALID_DISCOUNT_TYPES = ["fixed", "percentage"];
 const CUSTOMER_NUMBER_PREFIX = "cust";
 
 // e.g. "cust0001" — sequence is per tenant, never reused, never renumbered
@@ -34,165 +26,13 @@ export const getCustomerById = async (tenantId, id) => {
   return customer;
 };
 
-// Each selected option must name a real option on the ProductType, with a
-// value from that option's own list — otherwise a garment could be billed
-// for a customization that was never actually offered.
-const validateSelectedOptions = (productType, selectedOptions) => {
-  if (!selectedOptions || selectedOptions.length === 0) return;
-  for (const { name, value } of selectedOptions) {
-    const option = productType.options.find((o) => o.name === name);
-    if (!option) {
-      throw new AppError(`"${name}" is not a valid option for ${productType.name}`, 400);
-    }
-    if (!option.values.includes(value)) {
-      throw new AppError(`"${value}" is not a valid value for option "${name}"`, 400);
-    }
-  }
-};
-
-// Places the customer's very first order in the same transaction as their
-// creation. Every item references one of the measurements just captured (by
-// its index in that array) — a brand-new customer can't have any other
-// measurements on file yet. This mirrors OrderService.createOrder +
-// OrderItemService.createOrderItem, inlined here so "add customer + take
-// measurement + place order" is one atomic write instead of three requests.
-//
-// `canAdjustPrice` gates whether an item's `unitPrice` override (if sent) is
-// honored — anyone without it always gets the ProductType's basePrice,
-// regardless of what the client sends. Checked once by the caller
-// (CustomerController, via utils/hasPermission against "orders"/"update")
-// rather than per-item, since it's one registration-wide capability.
-const createOrderForNewCustomer = async (
-  tenantId,
-  customer,
-  createdMeasurements,
-  orderData,
-  userId,
-  session,
-  canAdjustPrice,
-) => {
-  const { deliveryDate, discount = 0, discountType = "fixed", notes, items } = orderData;
-
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new AppError("order.items must be a non-empty array", 400);
-  }
-  if (discountType && !VALID_DISCOUNT_TYPES.includes(discountType)) {
-    throw new AppError(`Invalid discountType. Must be one of: ${VALID_DISCOUNT_TYPES.join(", ")}`, 400);
-  }
-  if (discount < 0) {
-    throw new AppError("discount cannot be negative", 400);
-  }
-
-  const orderNumber = await generateOrderNumber(tenantId, customer, session);
-  const [order] = await Order.create(
-    [
-      {
-        tenantId,
-        customerId: customer._id,
-        orderNumber,
-        deliveryDate,
-        subtotal: 0,
-        discount,
-        discountType,
-        total: 0,
-        notes,
-        createdBy: userId,
-        updatedBy: userId,
-      },
-    ],
-    { session },
-  );
-
-  let subtotal = 0;
-  for (const rawItem of items) {
-    const {
-      measurementIndex,
-      productTypeId,
-      selectedOptions,
-      quantity = 1,
-      instructions,
-      unitPrice: requestedUnitPrice,
-      fabricId,
-      requiredFabricLength,
-    } = rawItem;
-
-    const measurement = createdMeasurements[measurementIndex];
-    if (!measurement) {
-      throw new AppError(
-        `Order item references an unknown measurement (index ${measurementIndex})`,
-        400,
-      );
-    }
-    if (!productTypeId) {
-      throw new AppError("productTypeId is required for each order item", 400);
-    }
-    if (quantity < 1) {
-      throw new AppError("quantity must be at least 1", 400);
-    }
-
-    const productType = await ProductType.findOne({
-      _id: productTypeId,
-      tenantId,
-      isDeleted: false,
-    }).session(session);
-    if (!productType) throw new AppError("Product type not found for this tenant", 404);
-
-    validateSelectedOptions(productType, selectedOptions);
-    const fabricSnapshot = await resolveFabricSnapshot(
-      tenantId,
-      fabricId,
-      requiredFabricLength,
-      session,
-    );
-
-    // Default price always comes from the ProductType; an adjusted price is
-    // only ever honored if the caller was found permitted (see canAdjustPrice
-    // above) — otherwise a client-sent unitPrice is silently ignored.
-    let unitPrice = productType.basePrice;
-    if (canAdjustPrice && requestedUnitPrice !== undefined) {
-      if (requestedUnitPrice < 0) {
-        throw new AppError("unitPrice cannot be negative", 400);
-      }
-      unitPrice = requestedUnitPrice;
-    }
-
-    // SNAPSHOT — copy the price/name now; ProductType changes later must not affect this item
-    await OrderItem.create(
-      [
-        {
-          tenantId,
-          orderId: order._id,
-          productTypeId,
-          garmentType: productType.name,
-          measurementId: measurement._id,
-          selectedOptions,
-          quantity,
-          unitPrice,
-          instructions,
-          ...fabricSnapshot,
-          createdBy: userId,
-          updatedBy: userId,
-        },
-      ],
-      { session },
-    );
-
-    // Lock the measurement so it can never be edited once attached to an order
-    measurement.lockedForOrder = true;
-    await measurement.save({ session });
-
-    subtotal += unitPrice * quantity;
-  }
-
-  order.subtotal = subtotal;
-  order.total = computeTotal(subtotal, discount, discountType);
-  await order.save({ session });
-
-  return order;
-};
-
-export const createCustomer = async (tenantId, data, userId, canAdjustPrice = false) => {
-  const { name, phone, address, email, gender, notes, measurements, order } = data;
+// The Customer module only ever manages customer information — measurements
+// and orders are created later, as part of the Order workflow (see
+// OrderItemService.createOrderForCustomer), never here. Kept a plain
+// single-collection insert on purpose: nothing else is written alongside a
+// customer anymore, so there's nothing to wrap in a transaction.
+export const createCustomer = async (tenantId, data, userId) => {
+  const { name, phone, cnic, address, email, gender, notes } = data;
 
   if (!name || !phone || !gender) {
     throw new AppError("name, phone, and gender are required", 400);
@@ -201,97 +41,62 @@ export const createCustomer = async (tenantId, data, userId, canAdjustPrice = fa
   if (!isValidPhone(phoneDigits)) {
     throw new AppError("Enter a valid 11-digit mobile number starting with 03", 400);
   }
+  let cnicDigits;
+  if (cnic) {
+    cnicDigits = normalizeDigits(cnic);
+    if (!isValidCnic(cnicDigits)) {
+      throw new AppError("Enter a valid 13-digit CNIC", 400);
+    }
+  }
   if (email && !isValidEmail(email)) {
     throw new AppError("Invalid email format", 400);
   }
   if (!VALID_GENDERS.includes(gender)) {
     throw new AppError(`Invalid gender. Must be one of: ${VALID_GENDERS.join(", ")}`, 400);
   }
-  if (measurements !== undefined && !Array.isArray(measurements)) {
-    throw new AppError("measurements must be an array", 400);
-  }
-  if (order !== undefined && (!measurements || measurements.length === 0)) {
-    throw new AppError("At least one measurement is required to place an order", 400);
-  }
 
   // Phone uniqueness is scoped per tenant — see unique index on { tenantId, phone }
-  const existing = await Customer.findOne({ tenantId, phone: phoneDigits });
-  if (existing) {
+  const existingPhone = await Customer.findOne({ tenantId, phone: phoneDigits });
+  if (existingPhone) {
     throw new AppError("A customer with this phone number already exists", 409);
   }
+  if (cnicDigits) {
+    const existingCnic = await Customer.findOne({ tenantId, cnic: cnicDigits });
+    if (existingCnic) {
+      throw new AppError("A customer with this CNIC already exists", 409);
+    }
+  }
 
-  const customerFields = {
+  const customerNumber = await generateCustomerNumber(tenantId);
+  const customer = await Customer.create({
     tenantId,
+    customerNumber,
     name,
     phone: phoneDigits,
+    cnic: cnicDigits || undefined,
     address,
     email,
     gender: gender || undefined, // "" from an unselected dropdown must stay unset, not an invalid enum value
     notes,
     createdBy: userId,
     updatedBy: userId,
-  };
-
-  if ((!measurements || measurements.length === 0) && order === undefined) {
-    const customerNumber = await generateCustomerNumber(tenantId);
-    const customer = await Customer.create({ ...customerFields, customerNumber });
-    return { customer, measurements: [], order: null };
-  }
-
-  // Customer + their initial garment measurements + their first order (if any)
-  // are created together — a customer left in a half-saved state would be
-  // confusing, so this is one transaction.
-  const session = await mongoose.startSession();
-  try {
-    session.startTransaction();
-
-    const customerNumber = await generateCustomerNumber(tenantId, session);
-    const [customer] = await Customer.create(
-      [{ ...customerFields, customerNumber }],
-      { session },
-    );
-
-    const createdMeasurements = [];
-    for (const measurementData of measurements || []) {
-      const measurement = await MeasurementService.createMeasurement(
-        tenantId,
-        { ...measurementData, customerId: customer._id },
-        userId,
-        session,
-      );
-      createdMeasurements.push(measurement);
-    }
-
-    let createdOrder = null;
-    if (order !== undefined) {
-      createdOrder = await createOrderForNewCustomer(
-        tenantId,
-        customer,
-        createdMeasurements,
-        order,
-        userId,
-        session,
-        canAdjustPrice,
-      );
-    }
-
-    await session.commitTransaction();
-    return { customer, measurements: createdMeasurements, order: createdOrder };
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
+  return { customer };
 };
 
 export const updateCustomer = async (tenantId, id, data, userId) => {
-  const allowedFields = ["name", "phone", "address", "email", "gender", "notes"];
+  const allowedFields = ["name", "phone", "cnic", "address", "email", "gender", "notes"];
 
   if (data.phone) {
     data.phone = normalizeDigits(data.phone);
     if (!isValidPhone(data.phone)) {
       throw new AppError("Enter a valid 11-digit mobile number starting with 03", 400);
+    }
+  }
+  if (data.cnic) {
+    data.cnic = normalizeDigits(data.cnic);
+    if (!isValidCnic(data.cnic)) {
+      throw new AppError("Enter a valid 13-digit CNIC", 400);
     }
   }
   if (data.email && !isValidEmail(data.email)) {
@@ -306,6 +111,7 @@ export const updateCustomer = async (tenantId, id, data, userId) => {
     if (data[field] !== undefined) updates[field] = data[field];
   }
   if (updates.gender === "") updates.gender = undefined; // clearing the dropdown must unset, not set an invalid enum value
+  if (updates.cnic === "") updates.cnic = undefined; // same rule as gender — clearing must unset, not write ""
   updates.updatedBy = userId;
 
   const customer = await Customer.findOneAndUpdate(

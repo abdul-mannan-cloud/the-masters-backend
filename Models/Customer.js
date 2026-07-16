@@ -22,6 +22,12 @@ const customerSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    // Optional — "if applicable" per the registration form. Unique per
+    // tenant, not globally, same convention as Employee.cnic.
+    cnic: {
+      type: String,
+      trim: true,
+    },
     address: {
       type: String,
       trim: true,
@@ -70,6 +76,10 @@ const customerSchema = new mongoose.Schema(
 
 // A customer's phone is unique within one shop, not across all shops
 customerSchema.index({ tenantId: 1, phone: 1 }, { unique: true });
+
+// CNIC uniqueness is scoped per tenant — sparse so most customers, who never
+// provide one, don't collide on a shared "missing" value.
+customerSchema.index({ tenantId: 1, cnic: 1 }, { unique: true, sparse: true });
 
 // customerNumber is unique within one shop — sparse so pre-existing customers
 // created before this field existed don't collide on a shared "missing" value

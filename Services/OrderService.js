@@ -6,6 +6,7 @@ import Payment from "../Models/Payment.js";
 import Customer from "../Models/Customer.js";
 import Measurement from "../Models/Measurement.js";
 import Employee from "../Models/Employee.js";
+import Inventory from "../Models/Inventory.js";
 import AppError from "../utils/AppError.js";
 import { getNextSequence } from "../utils/counter.js";
 import {
@@ -41,12 +42,35 @@ const generateOrderNumber = async (tenantId, customer, session) => {
   return `${customer.customerNumber}-${sequence}`;
 };
 
+// Each order comes back with a lightweight `items` summary (just garment
+// names) for the Orders list page's "Ordered Items" column — one extra
+// batched query for every OrderItem across the whole result page, not one
+// query per order, so this stays cheap regardless of how many orders match.
 export const listOrders = async (tenantId, filters = {}) => {
   const query = { tenantId };
   if (filters.productionStatus) query.productionStatus = filters.productionStatus;
   if (filters.paymentStatus) query.paymentStatus = filters.paymentStatus;
   if (filters.customerId) query.customerId = filters.customerId;
-  return Order.find(query).sort({ createdAt: -1 });
+
+  const orders = await Order.find(query).sort({ createdAt: -1 }).lean();
+  if (orders.length === 0) return orders;
+
+  const orderIds = orders.map((o) => o._id);
+  const items = await OrderItem.find({ orderId: { $in: orderIds }, tenantId })
+    .select("orderId garmentType")
+    .sort({ createdAt: 1 });
+
+  const itemsByOrderId = new Map();
+  for (const item of items) {
+    const key = String(item.orderId);
+    if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
+    itemsByOrderId.get(key).push({ _id: item._id, garmentType: item.garmentType });
+  }
+
+  return orders.map((order) => ({
+    ...order,
+    items: itemsByOrderId.get(String(order._id)) || [],
+  }));
 };
 
 export const getOrderById = async (tenantId, id) => {
@@ -377,11 +401,42 @@ export const getBill = async (tenantId, orderId) => {
       subtotal: item.unitPrice * item.quantity,
       instructions: item.instructions,
       status: item.status,
+      measurementId: item.measurementId,
       fabricId: item.fabricId,
       requiredFabricLength: item.requiredFabricLength,
       fabricUnit: item.fabricUnit,
     })),
   };
+};
+
+// Attaches the actual Measurement document and a display-friendly fabric
+// summary ({ fabricName, color }) to each already-billed item — shared by
+// getCheckout and getOrderDetails so a garment's fabric/measurement always
+// reads the same way wherever it's shown (Checkout page, Order History tab).
+const attachMeasurementAndFabric = async (tenantId, items) => {
+  const measurementIds = items.map((i) => i.measurementId).filter(Boolean);
+  const fabricIds = items.map((i) => i.fabricId).filter(Boolean);
+
+  const [measurements, fabrics] = await Promise.all([
+    measurementIds.length
+      ? Measurement.find({ _id: { $in: measurementIds }, tenantId })
+      : [],
+    fabricIds.length ? Inventory.find({ _id: { $in: fabricIds }, tenantId }) : [],
+  ]);
+  const measurementById = Object.fromEntries(measurements.map((m) => [String(m._id), m]));
+  const fabricById = Object.fromEntries(fabrics.map((f) => [String(f._id), f]));
+
+  return items.map((item) => ({
+    ...item,
+    measurement: item.measurementId ? measurementById[String(item.measurementId)] || null : null,
+    fabric: item.fabricId
+      ? {
+          _id: item.fabricId,
+          fabricName: fabricById[String(item.fabricId)]?.fabricName || null,
+          color: fabricById[String(item.fabricId)]?.color || null,
+        }
+      : null,
+  }));
 };
 
 // Full checkout view shown right after an order is created, before any
@@ -392,13 +447,15 @@ export const getCheckout = async (tenantId, orderId) => {
   const customer = await Customer.findOne({ _id: order.customerId, tenantId, isDeleted: false });
   if (!customer) throw new AppError("Customer not found for this tenant", 404);
 
+  const enrichedItems = await attachMeasurementAndFabric(tenantId, items);
+
   const payments = await getPaymentHistory(tenantId, orderId);
   const totalPaid = sumPayments(payments);
 
   return {
     order,
     customer,
-    items,
+    items: enrichedItems,
     totalPaid,
     remainingBalance: calculateRemainingBalance(order.total, totalPaid),
   };
@@ -431,14 +488,17 @@ export const getOrderDetails = async (tenantId, orderId) => {
   const items = await OrderItem.find({ orderId, tenantId }).sort({ createdAt: 1 });
   const itemIds = items.map((item) => item._id);
   const measurementIds = items.map((item) => item.measurementId);
+  const fabricIds = items.map((item) => item.fabricId).filter(Boolean);
 
-  const [measurements, assignments] = await Promise.all([
+  const [measurements, assignments, fabrics] = await Promise.all([
     Measurement.find({ _id: { $in: measurementIds }, tenantId }),
     OrderItemAssignment.find({ orderItemId: { $in: itemIds }, tenantId }).sort({
       "workflowStep.sequence": 1,
     }),
+    fabricIds.length ? Inventory.find({ _id: { $in: fabricIds }, tenantId }) : [],
   ]);
   const measurementById = Object.fromEntries(measurements.map((m) => [String(m._id), m]));
+  const fabricById = Object.fromEntries(fabrics.map((f) => [String(f._id), f]));
 
   const employeeIds = [...new Set(assignments.map((a) => String(a.employeeId)))];
   const employees = employeeIds.length
@@ -459,6 +519,13 @@ export const getOrderDetails = async (tenantId, orderId) => {
     fabricId: item.fabricId,
     requiredFabricLength: item.requiredFabricLength,
     fabricUnit: item.fabricUnit,
+    fabric: item.fabricId
+      ? {
+          _id: item.fabricId,
+          fabricName: fabricById[String(item.fabricId)]?.fabricName || null,
+          color: fabricById[String(item.fabricId)]?.color || null,
+        }
+      : null,
     measurement: measurementById[String(item.measurementId)] || null,
     assignedEmployees: assignments
       .filter((a) => String(a.orderItemId) === String(item._id))

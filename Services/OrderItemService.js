@@ -1,13 +1,16 @@
 import mongoose from "mongoose";
 import OrderItem from "../Models/OrderItem.js";
 import Order from "../Models/Order.js";
+import Customer from "../Models/Customer.js";
 import ProductType from "../Models/ProductType.js";
 import Measurement from "../Models/Measurement.js";
 import Inventory from "../Models/Inventory.js";
 import AppError from "../utils/AppError.js";
-import { recalculateOrderTotals } from "./OrderService.js";
+import { recalculateOrderTotals, computeTotal, generateOrderNumber } from "./OrderService.js";
+import * as MeasurementService from "./MeasurementService.js";
 
 const VALID_STATUSES = ["pending", "in_progress", "completed", "cancelled"];
+const VALID_DISCOUNT_TYPES = ["fixed", "percentage"];
 
 const assertOrderIsEditable = (order) => {
   if (!order) throw new AppError("Order not found", 404);
@@ -61,6 +64,246 @@ export const resolveFabricSnapshot = async (tenantId, fabricId, requiredFabricLe
   if (!inventory) throw new AppError("Inventory item not found for this tenant", 404);
 
   return { fabricId, requiredFabricLength, fabricUnit: inventory.unit };
+};
+
+// Each selected option must name a real option on the ProductType, with a
+// value from that option's own list — otherwise a garment could be billed
+// for a customization that was never actually offered. Distinct from the
+// shape-only validateSelectedOptions above, which doesn't have a ProductType
+// to check against yet at the point it runs.
+const validateOptionsAgainstProductType = (productType, selectedOptions) => {
+  if (!selectedOptions || selectedOptions.length === 0) return;
+  for (const { name, value } of selectedOptions) {
+    const option = productType.options.find((o) => o.name === name);
+    if (!option) {
+      throw new AppError(`"${name}" is not a valid option for ${productType.name}`, 400);
+    }
+    if (!option.values.includes(value)) {
+      throw new AppError(`"${value}" is not a valid value for option "${name}"`, 400);
+    }
+  }
+};
+
+// Creates an Order + all of its OrderItems for one customer, inside a
+// caller-supplied session. Each item's measurement is resolved one of two
+// ways: `measurementIndex` looks it up in `createdMeasurements` (freshly
+// created earlier in the same transaction — used when the customer is brand
+// new, or when new measurements are being taken as part of this order), or
+// `measurementId` looks up an existing, already-on-file Measurement owned by
+// this customer (used when reordering the same garment measurement again).
+// Both forms may be mixed within the same order.
+//
+// Shared by CustomerService.createCustomer (new customer, order optional)
+// and createOrderForCustomer below (existing customer) — this is the single
+// place "build an order from a list of garment picks" is implemented, so the
+// two call sites can never drift out of sync with each other.
+//
+// `canAdjustPrice` gates whether an item's `unitPrice` override (if sent) is
+// honored — anyone without it always gets the ProductType's basePrice.
+export const createOrderWithItems = async (
+  tenantId,
+  customer,
+  createdMeasurements,
+  orderData,
+  userId,
+  session,
+  canAdjustPrice,
+) => {
+  const { deliveryDate, discount = 0, discountType = "fixed", notes, items } = orderData;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new AppError("order.items must be a non-empty array", 400);
+  }
+  if (discountType && !VALID_DISCOUNT_TYPES.includes(discountType)) {
+    throw new AppError(`Invalid discountType. Must be one of: ${VALID_DISCOUNT_TYPES.join(", ")}`, 400);
+  }
+  if (discount < 0) {
+    throw new AppError("discount cannot be negative", 400);
+  }
+
+  const orderNumber = await generateOrderNumber(tenantId, customer, session);
+  const [order] = await Order.create(
+    [
+      {
+        tenantId,
+        customerId: customer._id,
+        orderNumber,
+        deliveryDate,
+        subtotal: 0,
+        discount,
+        discountType,
+        total: 0,
+        notes,
+        createdBy: userId,
+        updatedBy: userId,
+      },
+    ],
+    { session },
+  );
+
+  let subtotal = 0;
+  for (const rawItem of items) {
+    const {
+      measurementIndex,
+      measurementId,
+      productTypeId,
+      selectedOptions,
+      quantity = 1,
+      instructions,
+      unitPrice: requestedUnitPrice,
+      fabricId,
+      requiredFabricLength,
+    } = rawItem;
+
+    let measurement;
+    if (measurementIndex !== undefined) {
+      measurement = createdMeasurements[measurementIndex];
+      if (!measurement) {
+        throw new AppError(
+          `Order item references an unknown measurement (index ${measurementIndex})`,
+          400,
+        );
+      }
+    } else if (measurementId) {
+      measurement = await Measurement.findOne({
+        _id: measurementId,
+        tenantId,
+        customerId: customer._id,
+      }).session(session);
+      if (!measurement) {
+        throw new AppError("Measurement not found for this customer", 404);
+      }
+    } else {
+      throw new AppError(
+        "Each order item requires either measurementIndex or measurementId",
+        400,
+      );
+    }
+
+    if (!productTypeId) {
+      throw new AppError("productTypeId is required for each order item", 400);
+    }
+    if (quantity < 1) {
+      throw new AppError("quantity must be at least 1", 400);
+    }
+
+    const productType = await ProductType.findOne({
+      _id: productTypeId,
+      tenantId,
+      isDeleted: false,
+    }).session(session);
+    if (!productType) throw new AppError("Product type not found for this tenant", 404);
+
+    validateOptionsAgainstProductType(productType, selectedOptions);
+    const fabricSnapshot = await resolveFabricSnapshot(
+      tenantId,
+      fabricId,
+      requiredFabricLength,
+      session,
+    );
+
+    // Default price always comes from the ProductType; an adjusted price is
+    // only ever honored if the caller was found permitted (see canAdjustPrice
+    // above) — otherwise a client-sent unitPrice is silently ignored.
+    let unitPrice = productType.basePrice;
+    if (canAdjustPrice && requestedUnitPrice !== undefined) {
+      if (requestedUnitPrice < 0) {
+        throw new AppError("unitPrice cannot be negative", 400);
+      }
+      unitPrice = requestedUnitPrice;
+    }
+
+    // SNAPSHOT — copy the price/name now; ProductType changes later must not affect this item
+    await OrderItem.create(
+      [
+        {
+          tenantId,
+          orderId: order._id,
+          productTypeId,
+          garmentType: productType.name,
+          measurementId: measurement._id,
+          selectedOptions,
+          quantity,
+          unitPrice,
+          instructions,
+          ...fabricSnapshot,
+          createdBy: userId,
+          updatedBy: userId,
+        },
+      ],
+      { session },
+    );
+
+    // Lock the measurement so it can never be edited once attached to an order
+    measurement.lockedForOrder = true;
+    await measurement.save({ session });
+
+    subtotal += unitPrice * quantity;
+  }
+
+  order.subtotal = subtotal;
+  order.total = computeTotal(subtotal, discount, discountType);
+  await order.save({ session });
+
+  return order;
+};
+
+// Public entry point for placing a new order for an EXISTING customer (the
+// "New Order" page) — owns its own transaction, optionally captures fresh
+// measurements first (same shape as CustomerService.createCustomer's
+// `measurements[]`), then delegates to createOrderWithItems above. This is
+// what makes "select products, take measurements, pick fabric, order is
+// created automatically" work for a returning customer too, not just at
+// registration time.
+export const createOrderForCustomer = async (
+  tenantId,
+  customerId,
+  data,
+  userId,
+  canAdjustPrice = false,
+) => {
+  const { measurements: measurementsData, ...orderData } = data;
+
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+
+    const customer = await Customer.findOne({
+      _id: customerId,
+      tenantId,
+      isDeleted: false,
+    }).session(session);
+    if (!customer) throw new AppError("Customer not found for this tenant", 404);
+
+    const createdMeasurements = [];
+    for (const measurementData of measurementsData || []) {
+      const measurement = await MeasurementService.createMeasurement(
+        tenantId,
+        { ...measurementData, customerId: customer._id },
+        userId,
+        session,
+      );
+      createdMeasurements.push(measurement);
+    }
+
+    const order = await createOrderWithItems(
+      tenantId,
+      customer,
+      createdMeasurements,
+      orderData,
+      userId,
+      session,
+      canAdjustPrice,
+    );
+
+    await session.commitTransaction();
+    return order;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
 export const createOrderItem = async (tenantId, data, userId) => {
