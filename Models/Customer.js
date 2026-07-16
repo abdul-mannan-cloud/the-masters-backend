@@ -33,9 +33,14 @@ const customerSchema = new mongoose.Schema(
     },
     // No default — Mongoose's enum validator rejects `null`, so leaving
     // gender unset must mean the field is absent, not defaulted to null.
+    // Not `required` at the schema level even though registration requires it
+    // (enforced in CustomerService.createCustomer) — boot-time migrations
+    // like backfillCustomerNumbers.js call .save() on legacy customer docs
+    // that predate this field, and a hard schema requirement would break
+    // that save and, in turn, server startup.
     gender: {
       type: String,
-      enum: ["male", "female"],
+      enum: ["male", "female", "other"],
     },
     notes: {
       type: String,

@@ -2,20 +2,27 @@ import * as ProductTypeService from "../Services/ProductTypeService.js";
 import sendErrorResponse from "../utils/errorHandler.js";
 import isValidObjectId from "../utils/validateObjectId.js";
 import AppError from "../utils/AppError.js";
+import PRODUCT_CATEGORIES from "../utils/productCategories.js";
 
 export const getAllProductTypes = async (req, res) => {
   try {
-    const { page, limit, search, isActive } = req.query;
+    const { page, limit, search, isActive, category, gender } = req.query;
     const result = await ProductTypeService.listProductTypes(req.user.tenantId, {
       page,
       limit,
       search,
       isActive,
+      category,
+      gender,
     });
     return res.status(200).json(result);
   } catch (err) {
     return sendErrorResponse(res, err);
   }
+};
+
+export const getProductCategories = async (req, res) => {
+  return res.status(200).json(PRODUCT_CATEGORIES);
 };
 
 export const getProductTypeById = async (req, res) => {

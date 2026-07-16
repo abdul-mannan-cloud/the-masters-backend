@@ -96,6 +96,29 @@ const productTypeSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    // Drives gender-based filtering when adding garments for a customer
+    // (see utils/productCategories.js GENDER_CATEGORY_MAP). Not a Mongoose
+    // enum so new categories can be introduced without a schema change —
+    // validated against PRODUCT_CATEGORIES in the service layer instead.
+    category: {
+      type: String,
+      required: true,
+      trim: true,
+      default: "Unisex",
+    },
+    // True for a tenant's own copy of a platform default template (see
+    // utils/seedDefaultProductTypes.js). Informational only — a default
+    // template is otherwise a completely normal, independently editable
+    // ProductType owned by this tenant; editing it never affects other tenants.
+    isDefaultTemplate: {
+      type: Boolean,
+      default: false,
+    },
+    // Controls sort order in garment-selection dropdowns
+    displayOrder: {
+      type: Number,
+      default: 0,
+    },
     // Fields to collect when taking measurements for this garment
     measurementTemplate: {
       type: [measurementTemplateFieldSchema],
@@ -145,5 +168,8 @@ productTypeSchema.index({ tenantId: 1, name: 1 });
 
 // Filter active product types only (common UI query)
 productTypeSchema.index({ tenantId: 1, isActive: 1 });
+
+// Gender-based filtering when adding garments for a customer
+productTypeSchema.index({ tenantId: 1, category: 1 });
 
 export default mongoose.model("ProductType", productTypeSchema);

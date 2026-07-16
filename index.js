@@ -22,6 +22,7 @@ import dashboardRoutes from "./routes/Dashboard.js";
 import inventoryRoutes from "./routes/Inventory.js";
 import seedSuperAdmin from "./utils/seedSuperAdmin.js";
 import { backfillRolesForExistingTenants } from "./utils/seedDefaultRoles.js";
+import { backfillProductTypesForExistingTenants } from "./utils/seedDefaultProductTypes.js";
 import { backfillCustomerNumbers } from "./utils/backfillCustomerNumbers.js";
 import { backfillTenantSoftDelete } from "./utils/backfillTenantSoftDelete.js";
 import { backfillInventoryPermissions } from "./utils/backfillInventoryPermissions.js";
@@ -76,6 +77,7 @@ mongoose
     await seedSuperAdmin();
     await backfillTenantSoftDelete();
     await backfillRolesForExistingTenants();
+    await backfillProductTypesForExistingTenants();
     await backfillCustomerNumbers();
     await backfillInventoryPermissions();
     app.listen(port, () => {

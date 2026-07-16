@@ -10,7 +10,7 @@ import { resolveFabricSnapshot } from "./OrderItemService.js";
 import { getNextSequence } from "../utils/counter.js";
 import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 
-const VALID_GENDERS = ["male", "female"];
+const VALID_GENDERS = ["male", "female", "other"];
 const VALID_DISCOUNT_TYPES = ["fixed", "percentage"];
 const CUSTOMER_NUMBER_PREFIX = "cust";
 
@@ -194,8 +194,8 @@ const createOrderForNewCustomer = async (
 export const createCustomer = async (tenantId, data, userId, canAdjustPrice = false) => {
   const { name, phone, address, email, gender, notes, measurements, order } = data;
 
-  if (!name || !phone) {
-    throw new AppError("name and phone are required", 400);
+  if (!name || !phone || !gender) {
+    throw new AppError("name, phone, and gender are required", 400);
   }
   const phoneDigits = normalizeDigits(phone);
   if (!isValidPhone(phoneDigits)) {
@@ -204,7 +204,7 @@ export const createCustomer = async (tenantId, data, userId, canAdjustPrice = fa
   if (email && !isValidEmail(email)) {
     throw new AppError("Invalid email format", 400);
   }
-  if (gender && !VALID_GENDERS.includes(gender)) {
+  if (!VALID_GENDERS.includes(gender)) {
     throw new AppError(`Invalid gender. Must be one of: ${VALID_GENDERS.join(", ")}`, 400);
   }
   if (measurements !== undefined && !Array.isArray(measurements)) {

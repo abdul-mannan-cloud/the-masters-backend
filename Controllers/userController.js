@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import User from "../Models/User.js";
 import Tenant from "../Models/Tenant.js";
 import { seedRolesForTenant } from "../utils/seedDefaultRoles.js";
+import { seedProductTypesForTenant } from "../utils/seedDefaultProductTypes.js";
 import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 import dotenv from "dotenv";
 dotenv.config();
@@ -86,6 +87,7 @@ const signup = async (req, res) => {
       );
 
       await seedRolesForTenant(tenant._id, user._id, session);
+      await seedProductTypesForTenant(tenant._id, user._id, session);
 
       await session.commitTransaction();
 

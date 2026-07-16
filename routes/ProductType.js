@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getAllProductTypes,
+  getProductCategories,
   getProductTypeById,
   createProductType,
   updateProductType,
@@ -13,6 +14,8 @@ import authorize from "../middlewares/permissionMiddleware.js";
 const router = Router();
 
 router.get("/", authentication(), authorize("productTypes", "view"), getAllProductTypes);
+// Must come before "/:id" so "categories" isn't parsed as a product type ID.
+router.get("/categories", authentication(), getProductCategories);
 router.get("/:id", authentication(), authorize("productTypes", "view"), getProductTypeById);
 router.post(
   "/",

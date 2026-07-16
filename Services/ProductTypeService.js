@@ -1,6 +1,7 @@
 import ProductType from "../Models/ProductType.js";
 import AppError from "../utils/AppError.js";
 import EMPLOYEE_SKILLS from "../utils/skills.js";
+import PRODUCT_CATEGORIES, { GENDER_CATEGORY_MAP } from "../utils/productCategories.js";
 
 const VALID_UNITS = ["inch", "cm", "mm"];
 
@@ -98,6 +99,13 @@ const validateWorkflow = (workflow) => {
   }
 };
 
+const validateCategory = (category) => {
+  if (category === undefined) return;
+  if (!PRODUCT_CATEGORIES.includes(category)) {
+    throw new AppError(`Invalid category. Must be one of: ${PRODUCT_CATEGORIES.join(", ")}`, 400);
+  }
+};
+
 // Product names are unique per tenant only — the same name may exist across
 // different tenants. excludeId lets updates ignore the document's own name.
 const assertUniqueName = async (tenantId, name, excludeId) => {
@@ -128,10 +136,19 @@ export const listProductTypes = async (tenantId, filters = {}) => {
   } else if (filters.isActive === "false" || filters.isActive === false) {
     query.isActive = false;
   }
+  if (filters.category && PRODUCT_CATEGORIES.includes(filters.category)) {
+    query.category = filters.category;
+  }
+  // Gender-based filtering for the "add garment" dropdown — unrecognized
+  // gender values are ignored rather than rejected, since this is a
+  // best-effort list filter, not a validated write.
+  if (filters.gender && GENDER_CATEGORY_MAP[filters.gender]) {
+    query.category = { $in: GENDER_CATEGORY_MAP[filters.gender] };
+  }
 
   const [data, total] = await Promise.all([
     ProductType.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ displayOrder: 1, name: 1 })
       .skip((page - 1) * limit)
       .limit(limit),
     ProductType.countDocuments(query),
@@ -157,8 +174,17 @@ export const getProductTypeById = async (tenantId, id) => {
 };
 
 export const createProductType = async (tenantId, data, userId) => {
-  const { name, description, basePrice, measurementTemplate, options, workflow, isActive } =
-    data;
+  const {
+    name,
+    description,
+    basePrice,
+    category,
+    displayOrder,
+    measurementTemplate,
+    options,
+    workflow,
+    isActive,
+  } = data;
 
   if (!name || basePrice === undefined) {
     throw new AppError("name and basePrice are required", 400);
@@ -166,6 +192,7 @@ export const createProductType = async (tenantId, data, userId) => {
   if (basePrice < 0) {
     throw new AppError("basePrice cannot be negative", 400);
   }
+  validateCategory(category);
   await assertUniqueName(tenantId, name);
   validateMeasurementTemplate(measurementTemplate);
   validateOptions(options);
@@ -176,10 +203,15 @@ export const createProductType = async (tenantId, data, userId) => {
     name,
     description,
     basePrice,
+    category,
+    displayOrder,
     measurementTemplate,
     options,
     workflow,
     isActive,
+    // A tenant-created ProductType is never a default template — that flag
+    // is only ever set by utils/seedDefaultProductTypes.js at seed time.
+    isDefaultTemplate: false,
     createdBy: userId,
     updatedBy: userId,
   });
@@ -190,6 +222,8 @@ export const updateProductType = async (tenantId, id, data, userId) => {
     "name",
     "description",
     "basePrice",
+    "category",
+    "displayOrder",
     "measurementTemplate",
     "options",
     "workflow",
@@ -199,6 +233,7 @@ export const updateProductType = async (tenantId, id, data, userId) => {
   if (data.basePrice !== undefined && data.basePrice < 0) {
     throw new AppError("basePrice cannot be negative", 400);
   }
+  validateCategory(data.category);
   if (data.name) {
     await assertUniqueName(tenantId, data.name, id);
   }
