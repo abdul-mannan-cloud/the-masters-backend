@@ -16,7 +16,10 @@ const router = Router();
 
 router.post("/signup", upload.single("logo"), signup);
 router.post("/login", login);
-router.get("/", authentication("super_admin", "tenant_admin"), getAllUsers);
+// Lets an employee/manager with employees.view permission list portal
+// accounts too (e.g. the Employees list's "Portal Access" badge) — same
+// reasoning as GET /:id below, just missed when that one was fixed.
+router.get("/", authentication(), authorize("employees", "view"), getAllUsers);
 // Lets an employee/manager with employees.view permission look up the login
 // account linked to a coworker's Employee profile (e.g. "portal access" panel).
 router.get("/:id", authentication(), authorize("employees", "view"), getUserById);

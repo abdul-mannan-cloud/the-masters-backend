@@ -18,9 +18,13 @@ const inventorySchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    category: {
-      type: String,
-      trim: true,
+    // Every item belongs to exactly one (leaf) InventoryCategory — the
+    // hierarchy itself (unlimited nesting) lives on that model, not here.
+    // Replaces the old free-text `category` string field.
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryCategory",
+      default: null,
     },
     color: {
       type: String,
@@ -99,6 +103,6 @@ const inventorySchema = new mongoose.Schema(
 // Fabric code is unique within a tenant (two tenants can both have "FB-001")
 inventorySchema.index({ tenantId: 1, fabricCode: 1 }, { unique: true });
 inventorySchema.index({ tenantId: 1, fabricName: 1 });
-inventorySchema.index({ tenantId: 1, category: 1 });
+inventorySchema.index({ tenantId: 1, categoryId: 1 });
 
 export default mongoose.model("Inventory", inventorySchema);

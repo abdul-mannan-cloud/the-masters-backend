@@ -77,9 +77,17 @@ const customerSchema = new mongoose.Schema(
 // A customer's phone is unique within one shop, not across all shops
 customerSchema.index({ tenantId: 1, phone: 1 }, { unique: true });
 
-// CNIC uniqueness is scoped per tenant — sparse so most customers, who never
-// provide one, don't collide on a shared "missing" value.
-customerSchema.index({ tenantId: 1, cnic: 1 }, { unique: true, sparse: true });
+// CNIC uniqueness is scoped per tenant, only enforced for customers who
+// actually provided one. A plain `sparse` compound index does NOT achieve
+// that: MongoDB only excludes a document from a sparse compound index when
+// EVERY indexed field is missing, and tenantId is always present — so any
+// two cnic-less customers in the same tenant still collide as duplicates.
+// A partial index keyed on "cnic exists" is the correct way to scope
+// uniqueness to only the documents that have one.
+customerSchema.index(
+  { tenantId: 1, cnic: 1 },
+  { unique: true, partialFilterExpression: { cnic: { $exists: true } } },
+);
 
 // customerNumber is unique within one shop — sparse so pre-existing customers
 // created before this field existed don't collide on a shared "missing" value

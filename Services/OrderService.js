@@ -7,6 +7,7 @@ import Customer from "../Models/Customer.js";
 import Measurement from "../Models/Measurement.js";
 import Employee from "../Models/Employee.js";
 import Inventory from "../Models/Inventory.js";
+import InventoryTransaction from "../Models/InventoryTransaction.js";
 import AppError from "../utils/AppError.js";
 import { getNextSequence } from "../utils/counter.js";
 import {
@@ -206,7 +207,13 @@ export const updateOrder = async (tenantId, id, data, userId) => {
         tenantId,
         fabricId: { $ne: null },
       }).session(session);
-      await restoreInventory(tenantId, items, id, userId, session);
+      const customer = await Customer.findOne({ _id: order.customerId, tenantId }).session(
+        session,
+      );
+      await restoreInventory(tenantId, items, id, userId, session, {
+        orderNumber: order.orderNumber,
+        customerName: customer?.name || null,
+      });
 
       await session.commitTransaction();
     } catch (err) {
@@ -313,7 +320,13 @@ export const confirmOrder = async (tenantId, orderId, userId) => {
 
     if (items.length) {
       await validateStock(tenantId, items, session);
-      await deductInventory(tenantId, items, orderId, userId, session);
+      const customer = await Customer.findOne({ _id: order.customerId, tenantId }).session(
+        session,
+      );
+      await deductInventory(tenantId, items, orderId, userId, session, {
+        orderNumber: order.orderNumber,
+        customerName: customer?.name || null,
+      });
     }
 
     order.confirmedAt = new Date();
@@ -330,18 +343,46 @@ export const confirmOrder = async (tenantId, orderId, userId) => {
   }
 };
 
-export const deleteOrder = async (tenantId, id) => {
+export const deleteOrder = async (tenantId, id, userId) => {
   const order = await Order.findOne({ _id: id, tenantId });
   if (!order) throw new AppError("Order not found", 404);
 
   // Deleting an order cascades to its items, their workflow assignments, and
   // its payments — four collections, so this must be one atomic transaction.
+  // A confirmed order has already had its fabric deducted; deleting it must
+  // give that stock back first, same as cancelling would (see updateOrder's
+  // needsInventoryRestore above) — otherwise fabric vanishes from the ledger
+  // with no order left to explain where it went.
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
 
     const items = await OrderItem.find({ orderId: id, tenantId }).session(session);
     const itemIds = items.map((item) => item._id);
+
+    // confirmedAt is never cleared by a cancel (see updateOrder), so a
+    // confirmed order that was already cancelled-and-restored still looks
+    // "confirmed" here — restoring again would double-credit stock. A prior
+    // Return transaction is proof the restore already happened.
+    if (order.confirmedAt) {
+      const alreadyRestored = await InventoryTransaction.exists({
+        tenantId,
+        orderId: id,
+        transactionType: "Return",
+      }).session(session);
+
+      const fabricItems = items.filter((item) => item.fabricId);
+      if (!alreadyRestored && fabricItems.length) {
+        const customer = await Customer.findOne({ _id: order.customerId, tenantId }).session(
+          session,
+        );
+        await restoreInventory(tenantId, fabricItems, id, userId, session, {
+          orderNumber: order.orderNumber,
+          customerName: customer?.name || null,
+          remarks: "Restored — order deleted",
+        });
+      }
+    }
 
     if (itemIds.length) {
       await OrderItemAssignment.deleteMany(
@@ -490,15 +531,26 @@ export const getOrderDetails = async (tenantId, orderId) => {
   const measurementIds = items.map((item) => item.measurementId);
   const fabricIds = items.map((item) => item.fabricId).filter(Boolean);
 
-  const [measurements, assignments, fabrics] = await Promise.all([
+  const [measurements, assignments, fabrics, inventoryTransactions] = await Promise.all([
     Measurement.find({ _id: { $in: measurementIds }, tenantId }),
     OrderItemAssignment.find({ orderItemId: { $in: itemIds }, tenantId }).sort({
       "workflowStep.sequence": 1,
     }),
     fabricIds.length ? Inventory.find({ _id: { $in: fabricIds }, tenantId }) : [],
+    // The deduction record per item, if the order has been confirmed — lets
+    // Order Details show exactly which ledger entry consumed this item's
+    // fabric (see inventory/View.jsx for the other side of that same row).
+    InventoryTransaction.find({
+      tenantId,
+      orderItemId: { $in: itemIds },
+      transactionType: "Order Consumption",
+    }),
   ]);
   const measurementById = Object.fromEntries(measurements.map((m) => [String(m._id), m]));
   const fabricById = Object.fromEntries(fabrics.map((f) => [String(f._id), f]));
+  const inventoryTransactionByItemId = Object.fromEntries(
+    inventoryTransactions.map((t) => [String(t.orderItemId), t]),
+  );
 
   const employeeIds = [...new Set(assignments.map((a) => String(a.employeeId)))];
   const employees = employeeIds.length
@@ -524,6 +576,15 @@ export const getOrderDetails = async (tenantId, orderId) => {
           _id: item.fabricId,
           fabricName: fabricById[String(item.fabricId)]?.fabricName || null,
           color: fabricById[String(item.fabricId)]?.color || null,
+        }
+      : null,
+    inventoryTransaction: inventoryTransactionByItemId[String(item._id)]
+      ? {
+          _id: inventoryTransactionByItemId[String(item._id)]._id,
+          quantity: inventoryTransactionByItemId[String(item._id)].quantity,
+          previousStock: inventoryTransactionByItemId[String(item._id)].previousStock,
+          newStock: inventoryTransactionByItemId[String(item._id)].newStock,
+          createdAt: inventoryTransactionByItemId[String(item._id)].createdAt,
         }
       : null,
     measurement: measurementById[String(item.measurementId)] || null,

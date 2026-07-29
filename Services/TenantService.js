@@ -10,6 +10,7 @@ import Settings from "../Models/Settings.js";
 import AppError from "../utils/AppError.js";
 import { seedRolesForTenant } from "../utils/seedDefaultRoles.js";
 import { seedProductTypesForTenant } from "../utils/seedDefaultProductTypes.js";
+import { seedInventoryForTenant } from "../utils/seedDefaultInventory.js";
 import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
 
 const VALID_PLANS = ["free", "basic", "pro", "enterprise"];
@@ -154,6 +155,7 @@ export const createTenant = async (data, userId) => {
 
     await seedRolesForTenant(tenant._id, admin._id, session);
     await seedProductTypesForTenant(tenant._id, admin._id, session);
+    await seedInventoryForTenant(tenant._id, admin._id, session);
 
     await session.commitTransaction();
 

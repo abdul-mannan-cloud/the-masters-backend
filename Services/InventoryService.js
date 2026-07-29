@@ -1,5 +1,8 @@
 import Inventory from "../Models/Inventory.js";
 import InventoryTransaction from "../Models/InventoryTransaction.js";
+import InventoryCategory from "../Models/InventoryCategory.js";
+import User from "../Models/User.js";
+import Employee from "../Models/Employee.js";
 import AppError from "../utils/AppError.js";
 
 const VALID_UNITS = ["meter", "yard", "piece", "roll"];
@@ -23,6 +26,33 @@ const assertUniqueFabricCode = async (tenantId, fabricCode, excludeId) => {
   }
 };
 
+const assertCategoryExists = async (tenantId, categoryId) => {
+  if (!categoryId) return;
+  const category = await InventoryCategory.findOne({
+    _id: categoryId,
+    tenantId,
+    isDeleted: false,
+  });
+  if (!category) throw new AppError("Inventory category not found for this tenant", 404);
+};
+
+// Resolves a display name for the ledger's "Performed By" column. `createdBy`
+// is a User ref, not an Employee one, so a tenant_admin (no linked Employee)
+// falls back to their email — same fallback used by getInventoryTransactions'
+// enrichment elsewhere in this codebase.
+const resolvePerformedByName = async (userId, session) => {
+  if (!userId) return null;
+  const user = await User.findById(userId).session(session ?? null);
+  if (!user) return null;
+  if (user.employeeId) {
+    const employee = await Employee.findById(user.employeeId)
+      .session(session ?? null)
+      .select("name");
+    if (employee?.name) return employee.name;
+  }
+  return user.email || null;
+};
+
 export const checkLowStock = (inventory) =>
   inventory.availableQuantity <= inventory.minimumStockLevel;
 
@@ -36,7 +66,7 @@ export const listInventory = async (tenantId, filters = {}) => {
     const regex = { $regex: escapeRegex(filters.search.trim()), $options: "i" };
     query.$or = [{ fabricName: regex }, { fabricCode: regex }];
   }
-  if (filters.category) query.category = filters.category;
+  if (filters.categoryId) query.categoryId = filters.categoryId;
   if (filters.isActive === "true" || filters.isActive === true) {
     query.isActive = true;
   } else if (filters.isActive === "false" || filters.isActive === false) {
@@ -111,7 +141,7 @@ export const createInventory = async (tenantId, data, userId) => {
   const {
     fabricName,
     fabricCode,
-    category,
+    categoryId,
     color,
     supplier,
     unit,
@@ -140,12 +170,13 @@ export const createInventory = async (tenantId, data, userId) => {
     throw new AppError("sellingPrice cannot be negative", 400);
   }
   await assertUniqueFabricCode(tenantId, fabricCode);
+  await assertCategoryExists(tenantId, categoryId);
 
   return Inventory.create({
     tenantId,
     fabricName,
     fabricCode,
-    category,
+    categoryId: categoryId || null,
     color,
     supplier,
     unit,
@@ -168,7 +199,7 @@ export const updateInventory = async (tenantId, id, data, userId) => {
   const allowedFields = [
     "fabricName",
     "fabricCode",
-    "category",
+    "categoryId",
     "color",
     "supplier",
     "unit",
@@ -194,6 +225,9 @@ export const updateInventory = async (tenantId, id, data, userId) => {
   }
   if (data.fabricCode) {
     await assertUniqueFabricCode(tenantId, data.fabricCode, id);
+  }
+  if (data.categoryId !== undefined) {
+    await assertCategoryExists(tenantId, data.categoryId);
   }
 
   const updates = {};
@@ -257,6 +291,7 @@ export const adjustInventory = async (tenantId, id, data, userId, session) => {
   item.updatedBy = userId;
   await item.save({ session });
 
+  const performedByName = await resolvePerformedByName(userId, session);
   await InventoryTransaction.create(
     [
       {
@@ -268,6 +303,7 @@ export const adjustInventory = async (tenantId, id, data, userId, session) => {
         newStock,
         remarks,
         createdBy: userId,
+        performedByName,
       },
     ],
     { session },
@@ -297,7 +333,10 @@ export const validateStock = async (tenantId, items, session) => {
     }).session(session ?? null);
     if (!inventory) throw new AppError("Inventory item not found for this tenant", 404);
     if (inventory.availableQuantity < needed) {
-      throw new AppError("Insufficient inventory for selected fabric.", 400);
+      throw new AppError(
+        `Insufficient inventory for ${inventory.fabricName}: needs ${needed} ${inventory.unit}, only ${inventory.availableQuantity} ${inventory.unit} available`,
+        400,
+      );
     }
   }
 };
@@ -305,7 +344,12 @@ export const validateStock = async (tenantId, items, session) => {
 // Deducts fabric for each OrderItem individually (so every InventoryTransaction
 // keeps a precise orderItemId link) and writes an "Order Consumption" record.
 // Callers must run validateStock first within the same transaction.
-export const deductInventory = async (tenantId, items, orderId, userId, session) => {
+// `meta` ({orderNumber, customerName}) is snapshotted onto every transaction
+// row alongside the resolved performedByName — see InventoryTransaction.js's
+// comment for why these are copies, not live joins.
+export const deductInventory = async (tenantId, items, orderId, userId, session, meta = {}) => {
+  const performedByName = await resolvePerformedByName(userId, session);
+
   for (const item of items) {
     if (!item.fabricId) continue;
     const needed = (item.requiredFabricLength || 0) * (item.quantity || 1);
@@ -320,7 +364,10 @@ export const deductInventory = async (tenantId, items, orderId, userId, session)
 
     const previousStock = inventory.availableQuantity;
     if (previousStock < needed) {
-      throw new AppError("Insufficient inventory for selected fabric.", 400);
+      throw new AppError(
+        `Insufficient inventory for ${inventory.fabricName}: needs ${needed} ${inventory.unit}, only ${previousStock} ${inventory.unit} available`,
+        400,
+      );
     }
     const newStock = previousStock - needed;
 
@@ -335,6 +382,10 @@ export const deductInventory = async (tenantId, items, orderId, userId, session)
           inventoryId: inventory._id,
           orderId,
           orderItemId: item._id,
+          orderNumber: meta.orderNumber ?? null,
+          customerName: meta.customerName ?? null,
+          productName: item.garmentType ?? null,
+          performedByName,
           transactionType: "Order Consumption",
           quantity: needed,
           previousStock,
@@ -348,9 +399,13 @@ export const deductInventory = async (tenantId, items, orderId, userId, session)
   }
 };
 
-// Reverses deductInventory — used when an Order is cancelled before
-// production begins. Writes a "Return" record per item restored.
-export const restoreInventory = async (tenantId, items, orderId, userId, session) => {
+// Reverses deductInventory — used when a confirmed Order is cancelled before
+// production begins, or deleted outright. Writes a "Return" record per item
+// restored. `meta` may include `remarks` to describe why (cancel vs delete);
+// defaults to the cancel wording since that's the original/most common caller.
+export const restoreInventory = async (tenantId, items, orderId, userId, session, meta = {}) => {
+  const performedByName = await resolvePerformedByName(userId, session);
+
   for (const item of items) {
     if (!item.fabricId) continue;
     const restored = (item.requiredFabricLength || 0) * (item.quantity || 1);
@@ -375,11 +430,15 @@ export const restoreInventory = async (tenantId, items, orderId, userId, session
           inventoryId: inventory._id,
           orderId,
           orderItemId: item._id,
+          orderNumber: meta.orderNumber ?? null,
+          customerName: meta.customerName ?? null,
+          productName: item.garmentType ?? null,
+          performedByName,
           transactionType: "Return",
           quantity: restored,
           previousStock,
           newStock,
-          remarks: "Restored — order cancelled before production began",
+          remarks: meta.remarks || "Restored — order cancelled before production began",
           createdBy: userId,
         },
       ],
@@ -388,4 +447,4 @@ export const restoreInventory = async (tenantId, items, orderId, userId, session
   }
 };
 
-export { VALID_UNITS };
+export { VALID_UNITS, resolvePerformedByName };

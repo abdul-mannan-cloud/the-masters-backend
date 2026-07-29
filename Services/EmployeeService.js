@@ -167,7 +167,11 @@ export const enrollEmployee = async (tenantId, data, userId) => {
     return { employee, user: userSansPassword };
   } catch (err) {
     await session.abortTransaction();
-    if (err.code === 11000) {
+    // Only actually about email if the violated index is the email one — a
+    // race on Employee's own phone/cnic uniqueness hits this same catch and
+    // must not be mislabeled as an email conflict; let it fall through to
+    // the generic handler, which names the real field from err.keyPattern.
+    if (err.code === 11000 && err.keyPattern?.email) {
       throw new AppError("A user with this email already exists in your business", 409);
     }
     throw err;

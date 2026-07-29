@@ -20,12 +20,16 @@ import tenantRoutes from "./routes/Tenant.js";
 import roleRoutes from "./routes/Role.js";
 import dashboardRoutes from "./routes/Dashboard.js";
 import inventoryRoutes from "./routes/Inventory.js";
+import inventoryCategoryRoutes from "./routes/InventoryCategory.js";
 import seedSuperAdmin from "./utils/seedSuperAdmin.js";
 import { backfillRolesForExistingTenants } from "./utils/seedDefaultRoles.js";
 import { backfillProductTypesForExistingTenants } from "./utils/seedDefaultProductTypes.js";
+import { backfillInventoryForExistingTenants } from "./utils/seedDefaultInventory.js";
+import { backfillInventoryCategories } from "./utils/backfillInventoryCategories.js";
 import { backfillCustomerNumbers } from "./utils/backfillCustomerNumbers.js";
 import { backfillTenantSoftDelete } from "./utils/backfillTenantSoftDelete.js";
 import { backfillInventoryPermissions } from "./utils/backfillInventoryPermissions.js";
+import { backfillInventoryTransactionSnapshots } from "./utils/backfillInventoryTransactionSnapshots.js";
 
 // import clothRoutes from "./routes/Cloths.js";
 // import productRoutes from "./routes/Product.js";
@@ -59,6 +63,7 @@ app.use("/tenant", tenantRoutes);
 app.use("/role", roleRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/inventory", inventoryRoutes);
+app.use("/inventory-category", inventoryCategoryRoutes);
 // app.use("/cloth", clothRoutes);
 // app.use("/product", productRoutes);
 // app.use("/items", itemRoutes);
@@ -78,8 +83,11 @@ mongoose
     await backfillTenantSoftDelete();
     await backfillRolesForExistingTenants();
     await backfillProductTypesForExistingTenants();
+    await backfillInventoryForExistingTenants();
+    await backfillInventoryCategories();
     await backfillCustomerNumbers();
     await backfillInventoryPermissions();
+    await backfillInventoryTransactionSnapshots();
     app.listen(port, () => {
       console.log(`App Listening at Port ${port}`);
     });

@@ -8,6 +8,7 @@ import Inventory from "../Models/Inventory.js";
 import AppError from "../utils/AppError.js";
 import { recalculateOrderTotals, computeTotal, generateOrderNumber } from "./OrderService.js";
 import * as MeasurementService from "./MeasurementService.js";
+import { validateStock } from "./InventoryService.js";
 
 const VALID_STATUSES = ["pending", "in_progress", "completed", "cancelled"];
 const VALID_DISCOUNT_TYPES = ["fixed", "percentage"];
@@ -46,11 +47,22 @@ export const getOrderItemById = async (tenantId, id) => {
   return item;
 };
 
-// Fabric is optional. Validated against Inventory here (tenant-scoped, not
-// deleted) but never deducted here — stock is only touched when the Order is
-// confirmed (see OrderService.confirmOrder). fabricUnit is a snapshot of
-// Inventory.unit at pick time so a later unit change can't alter this item.
-export const resolveFabricSnapshot = async (tenantId, fabricId, requiredFabricLength, session) => {
+// Fabric is optional. Checked against Inventory here (tenant-scoped, not
+// deleted, and — as of this pass — enough availableQuantity for THIS item on
+// its own) but never deducted here — stock is only touched when the Order is
+// confirmed (see OrderService.confirmOrder). This is a single-item check;
+// createOrderWithItems additionally runs an aggregate validateStock pass
+// across the whole item list before creating anything, since two items in
+// the same request can each look fine alone but overrun the same fabric
+// together. fabricUnit is a snapshot of Inventory.unit at pick time so a
+// later unit change can't alter this item.
+export const resolveFabricSnapshot = async (
+  tenantId,
+  fabricId,
+  requiredFabricLength,
+  quantity,
+  session,
+) => {
   if (!fabricId) return { fabricId: null, requiredFabricLength: null, fabricUnit: null };
   if (!requiredFabricLength || requiredFabricLength <= 0) {
     throw new AppError("requiredFabricLength must be greater than 0 when fabricId is set", 400);
@@ -62,6 +74,14 @@ export const resolveFabricSnapshot = async (tenantId, fabricId, requiredFabricLe
     isDeleted: false,
   }).session(session);
   if (!inventory) throw new AppError("Inventory item not found for this tenant", 404);
+
+  const needed = requiredFabricLength * (quantity || 1);
+  if (inventory.availableQuantity < needed) {
+    throw new AppError(
+      `Insufficient inventory for ${inventory.fabricName}: needs ${needed} ${inventory.unit}, only ${inventory.availableQuantity} ${inventory.unit} available`,
+      400,
+    );
+  }
 
   return { fabricId, requiredFabricLength, fabricUnit: inventory.unit };
 };
@@ -120,6 +140,22 @@ export const createOrderWithItems = async (
   if (discount < 0) {
     throw new AppError("discount cannot be negative", 400);
   }
+
+  // Aggregate stock check across the WHOLE item list before creating
+  // anything. resolveFabricSnapshot (below, per item) only checks one item
+  // at a time — two items in this same order that each need part of the
+  // same fabric can individually look fine but together overrun it, so this
+  // aggregate pass (same logic Confirm Order uses) runs first and blocks the
+  // entire order if any fabric is short, before the Order document exists.
+  await validateStock(
+    tenantId,
+    items.map((i) => ({
+      fabricId: i.fabricId || null,
+      requiredFabricLength: i.requiredFabricLength || 0,
+      quantity: i.quantity || 1,
+    })),
+    session,
+  );
 
   const orderNumber = await generateOrderNumber(tenantId, customer, session);
   const [order] = await Order.create(
@@ -199,6 +235,7 @@ export const createOrderWithItems = async (
       tenantId,
       fabricId,
       requiredFabricLength,
+      quantity,
       session,
     );
 
@@ -350,6 +387,7 @@ export const createOrderItem = async (tenantId, data, userId) => {
       tenantId,
       fabricId,
       requiredFabricLength,
+      quantity,
       session,
     );
 
@@ -431,6 +469,7 @@ export const updateOrderItem = async (tenantId, id, data, userId) => {
         tenantId,
         fabricId !== undefined ? fabricId : item.fabricId,
         requiredFabricLength !== undefined ? requiredFabricLength : item.requiredFabricLength,
+        item.quantity,
         session,
       );
       item.fabricId = fabricSnapshot.fabricId;

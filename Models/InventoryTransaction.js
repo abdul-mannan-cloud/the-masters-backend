@@ -25,6 +25,30 @@ const inventoryTransactionSchema = new mongoose.Schema(
       ref: "OrderItem",
       default: null,
     },
+    // Snapshots, not live joins — an Order can be edited or deleted and a
+    // Customer/Employee record can change name later, but this ledger row
+    // must keep reading the same way it did the day the stock actually moved
+    // (same rationale as OrderItem.garmentType/unitPrice being snapshots).
+    orderNumber: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    customerName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    productName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    performedByName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     transactionType: {
       type: String,
       enum: ["Purchase", "Manual Adjustment", "Order Consumption", "Return", "Damage"],

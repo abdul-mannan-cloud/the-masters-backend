@@ -99,7 +99,7 @@ export const deleteOrder = async (req, res) => {
     if (!isValidObjectId(id)) {
       throw new AppError("Invalid order ID format", 400);
     }
-    await OrderService.deleteOrder(req.user.tenantId, id);
+    await OrderService.deleteOrder(req.user.tenantId, id, req.user.userId);
     return res.status(200).json({ message: "Order deleted successfully." });
   } catch (err) {
     return sendErrorResponse(res, err);

@@ -80,10 +80,16 @@ employeeSchema.index({ tenantId: 1 });
 // Assignment suggestions: "which employees can do Cutting for this tenant?"
 employeeSchema.index({ tenantId: 1, skills: 1 });
 
-// CNIC uniqueness is scoped per tenant
+// CNIC uniqueness is scoped per tenant, only for employees who actually have
+// one. A plain `sparse` compound index does NOT achieve that — MongoDB only
+// excludes a document from a sparse compound index when EVERY indexed field
+// is missing, and tenantId is always present, so two cnic-less employees in
+// the same tenant would still collide as duplicates. A partial index keyed
+// on "cnic exists" correctly scopes uniqueness to only the documents that
+// have one (same fix as Customer.cnic — see Models/Customer.js).
 employeeSchema.index(
   { tenantId: 1, cnic: 1 },
-  { unique: true, sparse: true }, // sparse: allows multiple docs with no cnic
+  { unique: true, partialFilterExpression: { cnic: { $exists: true } } },
 );
 
 // Phone uniqueness scoped per tenant

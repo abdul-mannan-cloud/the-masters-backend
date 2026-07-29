@@ -4,37 +4,32 @@ import User from "../Models/User.js";
 import Tenant from "../Models/Tenant.js";
 import { buildPermissionsObject } from "./permissions.js";
 
-// "Almost everything except business settings" per the product spec.
-const managerPermissions = buildPermissionsObject(true);
-managerPermissions.settings = { view: false, create: false, update: false, delete: false };
-
-const receptionistPermissions = buildPermissionsObject(false);
-receptionistPermissions.dashboard.view = true;
-receptionistPermissions.customers = { view: true, create: true, update: true, delete: false };
-receptionistPermissions.measurements = { view: true, create: true, update: true, delete: false };
-receptionistPermissions.orders = { view: true, create: true, update: true, delete: false };
-receptionistPermissions.inventory.view = true;
-
-const tailorPermissions = buildPermissionsObject(false);
-tailorPermissions.dashboard.view = true;
-tailorPermissions.orders.view = true;
-tailorPermissions.inventory.view = true;
+// Single general-purpose starter role — the product now has only one
+// user-facing employee category ("Employee"); named categories like the old
+// Manager/Receptionist/Tailor are no longer seeded. This is deliberately NOT
+// a hardcoded ceiling: a tenant_admin can still create/rename/delete
+// additional custom Roles at any time via the existing Role management UI
+// (RoleService already supports arbitrary names — see roles/Form.jsx) for
+// future categories like Supervisor/Accountant, without any schema change.
+// Enough access to actually run the core workflow end to end (browse the
+// catalog, take measurements, serve customers, place + confirm an order,
+// pick inventory, record a payment) but not to touch other employees'
+// accounts or business settings — those stay owner-level by default.
+const employeePermissions = buildPermissionsObject(false);
+employeePermissions.dashboard.view = true;
+employeePermissions.customers = { view: true, create: true, update: true, delete: false };
+employeePermissions.measurements = { view: true, create: true, update: true, delete: false };
+employeePermissions.productTypes.view = true;
+employeePermissions.orders = { view: true, create: true, update: true, delete: false };
+employeePermissions.employees.view = true;
+employeePermissions.payments = { view: true, create: true, update: true, delete: false };
+employeePermissions.inventory = { view: true, create: true, update: true, delete: true };
 
 const DEFAULT_ROLE_DEFINITIONS = [
   {
-    name: "Manager",
-    description: "Almost full access, excluding business settings.",
-    permissions: managerPermissions,
-  },
-  {
-    name: "Receptionist",
-    description: "Handles customers, measurements, and orders.",
-    permissions: receptionistPermissions,
-  },
-  {
-    name: "Tailor",
-    description: "Views orders assigned to them for production.",
-    permissions: tailorPermissions,
+    name: "Employee",
+    description: "General staff access — customers, orders, inventory, and payments.",
+    permissions: employeePermissions,
   },
 ];
 

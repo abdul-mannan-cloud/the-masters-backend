@@ -23,12 +23,12 @@ const resolveBody = (req) => {
 
 export const getAllInventory = async (req, res) => {
   try {
-    const { page, limit, search, category, isActive, sortBy, sortOrder } = req.query;
+    const { page, limit, search, categoryId, isActive, sortBy, sortOrder } = req.query;
     const result = await InventoryService.listInventory(req.user.tenantId, {
       page,
       limit,
       search,
-      category,
+      categoryId,
       isActive,
       sortBy,
       sortOrder,
