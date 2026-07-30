@@ -25,6 +25,23 @@ export const getAllTenants = async (req, res) => {
   }
 };
 
+// Public — no authentication(). Powers subdomain resolution: the frontend
+// calls this before login exists to know which business a subdomain belongs
+// to. Deliberately returns only non-sensitive fields (see TenantService) —
+// this is never used as an authorization source, only for branding/UX.
+export const getTenantBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    if (!slug || typeof slug !== "string") {
+      throw new AppError("slug is required", 400);
+    }
+    const tenant = await TenantService.getTenantBySlugPublic(slug);
+    return res.status(200).json(tenant);
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
 export const getTenantById = async (req, res) => {
   try {
     const { id } = req.params;

@@ -5,11 +5,13 @@ import {
   getProductTypeById,
   createProductType,
   updateProductType,
+  updatePreviewLayers,
   toggleProductTypeStatus,
   deleteProductType,
 } from "../Controllers/ProductTypeController.js";
 import authentication from "../middlewares/authMiddleware.js";
 import authorize from "../middlewares/permissionMiddleware.js";
+import uploadProductPreview from "../middlewares/uploadProductPreviewMiddleware.js";
 
 const router = Router();
 
@@ -28,6 +30,13 @@ router.put(
   authentication("tenant_admin", "manager", "employee"),
   authorize("productTypes", "update"),
   updateProductType,
+);
+router.put(
+  "/:id/preview-layers",
+  authentication("tenant_admin", "manager", "employee"),
+  authorize("productTypes", "update"),
+  uploadProductPreview.any(),
+  updatePreviewLayers,
 );
 router.patch(
   "/:id/status",

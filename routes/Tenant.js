@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getAllTenants,
+  getTenantBySlug,
   getTenantById,
   createTenant,
   updateTenant,
@@ -13,6 +14,11 @@ import authentication from "../middlewares/authMiddleware.js";
 import upload from "../middlewares/uploadMiddleware.js";
 
 const router = Router();
+
+// Public — resolves a subdomain to a tenant for the login page, before any
+// session exists. Two path segments, so no ordering conflict with "/:id"
+// below regardless of declaration order — kept first for readability only.
+router.get("/by-slug/:slug", getTenantBySlug);
 
 // Fine-grained super_admin-vs-own-tenant checks happen inside the controller,
 // so every route here just requires *some* authenticated user.

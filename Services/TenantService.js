@@ -71,6 +71,22 @@ export const getTenantById = async (id) => {
   return tenant;
 };
 
+// Public, unauthenticated lookup — resolves a subdomain/slug to just enough
+// info to render a login page ("Ali Tailors — Sign in", their logo) and to
+// scope the login attempt to this tenant. This is informational only, never
+// an authorization boundary: it deliberately does NOT filter by status, so a
+// suspended tenant's own login page can still show a clear "this business is
+// suspended" message instead of a generic 404 (see Controllers/userController.js's
+// login, which does the actual status check). Only isDeleted excludes a
+// tenant here, since that means "doesn't exist" rather than "exists but blocked".
+export const getTenantBySlugPublic = async (slug) => {
+  const tenant = await Tenant.findOne({ slug: slug.toLowerCase(), isDeleted: false }).select(
+    "businessName slug logo status",
+  );
+  if (!tenant) throw new AppError("Business not found", 404);
+  return tenant;
+};
+
 // Creates a Tenant together with its first tenant_admin User in one
 // transaction (super-admin panel equivalent of the self-service /admin/signup
 // flow) — a tenant created here must be able to log in immediately, so the

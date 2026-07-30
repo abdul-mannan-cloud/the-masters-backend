@@ -256,6 +256,74 @@ export const updateProductType = async (tenantId, id, data, userId) => {
   return productType;
 };
 
+// Resolves one previewMeta image reference to an actual URL: a freshly
+// uploaded file (matched to req.files by the fieldName the frontend generated
+// for it) takes priority, otherwise the caller is keeping whatever image URL
+// it already had (existingImage) — or there is none yet.
+const resolveImageUrl = (files, ref) => {
+  if (!ref) return null;
+  if (ref.fieldName) {
+    const file = files.find((f) => f.fieldname === ref.fieldName);
+    if (!file) {
+      throw new AppError(`No uploaded file found for field "${ref.fieldName}"`, 400);
+    }
+    return file.path;
+  }
+  return ref.existingImage || null;
+};
+
+// Full-replace update of a ProductType's 2D preview layers, mirroring how
+// updateProductType already treats options/workflow as full-replace arrays
+// rather than incremental patches — the frontend always sends the complete
+// current state (existing images passed through as existingImage, new ones
+// as an uploaded fieldName), so there is no separate merge step here.
+export const updatePreviewLayers = async (tenantId, id, previewMeta, files, userId) => {
+  const productType = await ProductType.findOne({ _id: id, tenantId, isDeleted: false });
+  if (!productType) throw new AppError("Product type not found", 404);
+
+  const { baseImage, layers } = previewMeta || {};
+  if (layers !== undefined && !Array.isArray(layers)) {
+    throw new AppError("layers must be an array", 400);
+  }
+
+  const optionsByName = new Map(productType.options.map((o) => [o.name, o]));
+
+  const resolvedLayers = (layers || []).map((layer) => {
+    const option = optionsByName.get(layer.optionName);
+    if (!option) {
+      throw new AppError(`"${layer.optionName}" is not an option on this product type`, 400);
+    }
+    if (!Array.isArray(layer.values)) {
+      throw new AppError(`values must be an array for option "${layer.optionName}"`, 400);
+    }
+
+    const resolvedValues = layer.values.map((v) => {
+      if (!option.values.includes(v.value)) {
+        throw new AppError(`"${v.value}" is not a value of option "${layer.optionName}"`, 400);
+      }
+      const image = resolveImageUrl(files, v);
+      if (!image) {
+        throw new AppError(`An image is required for "${layer.optionName}: ${v.value}"`, 400);
+      }
+      return { value: v.value, image };
+    });
+
+    return {
+      optionName: layer.optionName,
+      zIndex: typeof layer.zIndex === "number" ? layer.zIndex : 0,
+      values: resolvedValues,
+    };
+  });
+
+  productType.preview = {
+    baseImage: resolveImageUrl(files, baseImage),
+    layers: resolvedLayers,
+  };
+  productType.updatedBy = userId;
+  await productType.save();
+  return productType;
+};
+
 export const toggleStatus = async (tenantId, id, isActive, userId) => {
   if (typeof isActive !== "boolean") {
     throw new AppError("isActive must be a boolean", 400);

@@ -76,6 +76,36 @@ export const updateProductType = async (req, res) => {
   }
 };
 
+export const updatePreviewLayers = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid product type ID format", 400);
+    }
+    // previewMeta arrives as a JSON string (multipart form fields are always
+    // strings) describing the preview structure; the actual image bytes are
+    // the sibling files in req.files, cross-referenced by fieldName.
+    let previewMeta;
+    try {
+      previewMeta = JSON.parse(req.body.previewMeta || "{}");
+    } catch {
+      throw new AppError("previewMeta must be valid JSON", 400);
+    }
+    const productType = await ProductTypeService.updatePreviewLayers(
+      req.user.tenantId,
+      id,
+      previewMeta,
+      req.files || [],
+      req.user.userId,
+    );
+    return res
+      .status(200)
+      .json({ message: "Preview layers updated successfully.", productType });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
 export const toggleProductTypeStatus = async (req, res) => {
   try {
     const { id } = req.params;
