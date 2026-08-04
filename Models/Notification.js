@@ -20,7 +20,7 @@ const notificationSchema = new mongoose.Schema(
     // The delivery mechanism used
     channel: {
       type: String,
-      enum: ["sms", "email", "in_app"],
+      enum: ["sms", "email", "in_app", "whatsapp"],
       required: true,
     },
     // Category of notification — used for filtering and analytics

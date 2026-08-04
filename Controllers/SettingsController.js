@@ -2,6 +2,15 @@ import * as SettingsService from "../Services/SettingsService.js";
 import sendErrorResponse from "../utils/errorHandler.js";
 import isValidObjectId from "../utils/validateObjectId.js";
 import AppError from "../utils/AppError.js";
+import { WHATSAPP_PLACEHOLDERS } from "../utils/whatsappTemplates.js";
+
+// Static reference list for the WhatsApp template editor's placeholder
+// legend — served dynamically (not hardcoded in the frontend) so it can
+// never drift from what renderWhatsAppTemplate actually supports, same
+// pattern as GET /product-type/categories and GET /employee/skills.
+export const getWhatsAppPlaceholders = async (req, res) => {
+  return res.status(200).json(WHATSAPP_PLACEHOLDERS);
+};
 
 // Settings has nested sections (business.name, invoice.prefix, ...), which
 // multipart/form-data can't express as a plain object like JSON can — so

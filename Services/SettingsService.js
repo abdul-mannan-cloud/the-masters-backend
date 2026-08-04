@@ -17,7 +17,7 @@ const BUSINESS_TO_TENANT_FIELD = {
   address: "address",
 };
 
-const SECTION_FIELDS = ["business", "invoice", "notifications"];
+const SECTION_FIELDS = ["business", "invoice", "notifications", "whatsapp"];
 
 export const getSettings = async (tenantId, userId) => {
   // One Settings document per tenant — create it with defaults on first access
@@ -43,6 +43,12 @@ export const updateSettings = async (tenantId, data, userId) => {
   }
   if (data.business?.email && !isValidEmail(data.business.email)) {
     throw new AppError("Invalid business email format", 400);
+  }
+  if (data.whatsapp?.orderPlacedTemplate !== undefined && !data.whatsapp.orderPlacedTemplate.trim()) {
+    throw new AppError("Order Placed message template cannot be empty", 400);
+  }
+  if (data.whatsapp?.orderCompletedTemplate !== undefined && !data.whatsapp.orderCompletedTemplate.trim()) {
+    throw new AppError("Order Completed message template cannot be empty", 400);
   }
 
   const updates = { updatedBy: userId };

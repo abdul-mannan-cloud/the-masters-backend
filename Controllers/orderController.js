@@ -1,5 +1,6 @@
 import * as OrderService from "../Services/OrderService.js";
 import * as OrderItemService from "../Services/OrderItemService.js";
+import * as WhatsAppNotificationService from "../Services/WhatsAppNotificationService.js";
 import sendErrorResponse from "../utils/errorHandler.js";
 import isValidObjectId from "../utils/validateObjectId.js";
 import AppError from "../utils/AppError.js";
@@ -61,6 +62,14 @@ export const createOrder = async (req, res) => {
         req.user.userId,
         canAdjustPrice,
       );
+      // Fire-and-forget — a WhatsApp send is an external API call and must
+      // never delay or fail the order-creation response (see
+      // WhatsAppNotificationService for why every error is swallowed there).
+      WhatsAppNotificationService.sendOrderPlacedNotification(
+        req.user.tenantId,
+        order._id,
+        req.user.userId,
+      );
       return res.status(201).json({ message: "Order created successfully.", order });
     }
 
@@ -69,6 +78,10 @@ export const createOrder = async (req, res) => {
       req.body,
       req.user.userId,
     );
+    // The "empty shell" path has no items yet — nothing meaningful to text
+    // the customer about until at least one garment is added, so no
+    // WhatsApp trigger here (matches the rich-flow path above being the
+    // real "order placed" moment).
     return res.status(201).json({ message: "Order created successfully.", order });
   } catch (err) {
     return sendErrorResponse(res, err);
@@ -87,6 +100,17 @@ export const updateOrder = async (req, res) => {
       req.body,
       req.user.userId,
     );
+    // updateOrder rejects any update to an order that's already
+    // completed/delivered/cancelled, so reaching here with this in the
+    // request body is always a genuine fresh transition into "completed" —
+    // safe to trigger without re-checking the order's prior status.
+    if (req.body.productionStatus === "completed") {
+      WhatsAppNotificationService.sendOrderCompletedNotification(
+        req.user.tenantId,
+        order._id,
+        req.user.userId,
+      );
+    }
     return res.status(200).json({ message: "Order updated successfully.", order });
   } catch (err) {
     return sendErrorResponse(res, err);

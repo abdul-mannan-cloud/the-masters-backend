@@ -1,4 +1,8 @@
 import mongoose from "mongoose";
+import {
+  DEFAULT_ORDER_PLACED_TEMPLATE,
+  DEFAULT_ORDER_COMPLETED_TEMPLATE,
+} from "../utils/whatsappTemplates.js";
 
 const settingsSchema = new mongoose.Schema(
   {
@@ -39,6 +43,17 @@ const settingsSchema = new mongoose.Schema(
       autoNotifyOnOrderReady: { type: Boolean, default: false },
       // Send a confirmation after a payment is recorded
       autoNotifyOnPaymentReceived: { type: Boolean, default: false },
+    },
+
+    // Per-business customizable WhatsApp message text (rendered with
+    // {{placeholders}}, see utils/whatsappTemplates.js). Sending itself uses
+    // platform-level Meta WhatsApp Cloud API credentials (.env) — there is no
+    // per-tenant phone number/access token here, only message content.
+    // Whether these actually get sent is gated by notifications.* above, not
+    // by a field in here.
+    whatsapp: {
+      orderPlacedTemplate: { type: String, default: DEFAULT_ORDER_PLACED_TEMPLATE },
+      orderCompletedTemplate: { type: String, default: DEFAULT_ORDER_COMPLETED_TEMPLATE },
     },
 
     createdBy: {
