@@ -1,16 +1,11 @@
 node_modules
 .env
-<<<<<<< HEAD
 mongo-rs-data
 
 the-masters-backend\.env
 the-masters-backend\.idea
 the-masters-backend\node_modules
-=======
+
 temp_auto_push.bat
 temp_interactive_push.bat
 branch_structure.json
-<<<<<<< HEAD
->>>>>>> 473813dbabe27cd5035947f9441595cc9e0f3535
-=======
->>>>>>> 891a65cf174ae92f76f9c0f6e774a910cff00568
