@@ -10,7 +10,7 @@ import {
   getOrderDetails,
   applyDiscount,
   confirmOrder,
-} from "../Controllers/OrderController.js";
+} from "../Controllers/orderController.js";
 import authentication from "../middlewares/authMiddleware.js";
 import authorize from "../middlewares/permissionMiddleware.js";
 

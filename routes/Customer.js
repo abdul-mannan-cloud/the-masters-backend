@@ -5,7 +5,7 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-} from "../Controllers/CustomerController.js";
+} from "../Controllers/customerController.js";
 import authentication from "../middlewares/authMiddleware.js";
 import authorize from "../middlewares/permissionMiddleware.js";
 

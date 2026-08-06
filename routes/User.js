@@ -7,7 +7,7 @@ import {
   createUser,
   updateUser,
   deleteUser,
-} from "../Controllers/UserController.js";
+} from "../Controllers/userController.js";
 import authentication from "../middlewares/authMiddleware.js";
 import authorize from "../middlewares/permissionMiddleware.js";
 import upload from "../middlewares/uploadMiddleware.js";
