@@ -4,13 +4,27 @@ import Order from "../Models/Order.js";
 import AppError from "../utils/AppError.js";
 
 const VALID_CHANNELS = ["sms", "email", "in_app", "whatsapp"];
-const VALID_STATUSES = ["pending", "sent", "delivered", "failed", "read"];
+const VALID_STATUSES = [
+  "pending",
+  "pending_confirmation",
+  "sent",
+  "delivered",
+  "failed",
+  "read",
+  "cancelled",
+];
 
 export const listNotifications = async (tenantId, filters = {}) => {
   const query = { tenantId };
   if (filters.customerId) query.customerId = filters.customerId;
   if (filters.status) query.status = filters.status;
-  return Notification.find(query).sort({ createdAt: -1 });
+  // Populated so the frontend (e.g. the Pending WhatsApp Notifications review
+  // screen) can show a customer name / order number without a second round
+  // trip per row — same pattern DashboardService's recent-orders query uses.
+  return Notification.find(query)
+    .sort({ createdAt: -1 })
+    .populate("customerId", "name phone")
+    .populate("orderId", "orderNumber");
 };
 
 export const getNotificationById = async (tenantId, id) => {
@@ -82,4 +96,43 @@ export const deleteNotification = async (tenantId, id) => {
   const notification = await Notification.findOneAndDelete({ _id: id, tenantId });
   if (!notification) throw new AppError("Notification not found", 404);
   return notification;
+};
+
+// Atomically moves a human-in-the-loop notification from
+// "pending_confirmation" to "pending" — the status match is part of the
+// filter, not a separate check-then-write, so two concurrent "Send" clicks
+// (double-click, two tabs) can never both win: only the first findOneAndUpdate
+// actually matches a document, the second finds nothing and gets the 409
+// below. This is the mechanism section 11 ("critical: prevent duplicate
+// sends") actually depends on for the confirm flow.
+export const claimPendingConfirmation = async (tenantId, id) => {
+  const claimed = await Notification.findOneAndUpdate(
+    { _id: id, tenantId, status: "pending_confirmation" },
+    { status: "pending" },
+  );
+  if (claimed) return claimed; // pre-update doc — still has the original content/recipient
+
+  const existing = await Notification.findOne({ _id: id, tenantId });
+  if (!existing) throw new AppError("Notification not found", 404);
+  throw new AppError(
+    `Notification is not awaiting confirmation (current status: ${existing.status})`,
+    409,
+  );
+};
+
+// Same atomicity reasoning as claimPendingConfirmation, for the Cancel button.
+export const cancelPendingConfirmation = async (tenantId, id) => {
+  const cancelled = await Notification.findOneAndUpdate(
+    { _id: id, tenantId, status: "pending_confirmation" },
+    { status: "cancelled" },
+    { new: true },
+  );
+  if (cancelled) return cancelled;
+
+  const existing = await Notification.findOne({ _id: id, tenantId });
+  if (!existing) throw new AppError("Notification not found", 404);
+  throw new AppError(
+    `Notification is not awaiting confirmation (current status: ${existing.status})`,
+    409,
+  );
 };

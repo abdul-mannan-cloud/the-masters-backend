@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import {
   DEFAULT_ORDER_PLACED_TEMPLATE,
   DEFAULT_ORDER_COMPLETED_TEMPLATE,
+  DEFAULT_PAYMENT_RECEIVED_TEMPLATE,
 } from "../utils/whatsappTemplates.js";
 
 const settingsSchema = new mongoose.Schema(
@@ -43,6 +44,12 @@ const settingsSchema = new mongoose.Schema(
       autoNotifyOnOrderReady: { type: Boolean, default: false },
       // Send a confirmation after a payment is recorded
       autoNotifyOnPaymentReceived: { type: Boolean, default: false },
+      // Only meaningful when autoNotifyOnOrderReady is true. "automatic"
+      // sends immediately when an order completes; "confirm" instead parks
+      // the rendered message as a Notification with status
+      // "pending_confirmation" for an authorized tenant user to review and
+      // explicitly send (see WhatsAppNotificationService, routes/Notification.js).
+      orderCompletedMode: { type: String, enum: ["automatic", "confirm"], default: "automatic" },
     },
 
     // Per-business customizable WhatsApp message text (rendered with
@@ -54,6 +61,7 @@ const settingsSchema = new mongoose.Schema(
     whatsapp: {
       orderPlacedTemplate: { type: String, default: DEFAULT_ORDER_PLACED_TEMPLATE },
       orderCompletedTemplate: { type: String, default: DEFAULT_ORDER_COMPLETED_TEMPLATE },
+      paymentReceivedTemplate: { type: String, default: DEFAULT_PAYMENT_RECEIVED_TEMPLATE },
     },
 
     createdBy: {

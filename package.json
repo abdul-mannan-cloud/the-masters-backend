@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "import:customers": "node scripts/importCustomersFromTM.js"
+    "import:customers": "node scripts/importCustomersFromTM.js",
+    "whatsapp:verify-config": "node scripts/verifyWhatsAppConfig.js"
   },
   "keywords": [],
   "author": "",

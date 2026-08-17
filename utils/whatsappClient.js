@@ -1,8 +1,5 @@
 // Thin wrapper around Meta's WhatsApp Cloud API (Graph API "messages"
-// endpoint). Platform-level credentials — one Meta WhatsApp Business app
-// sends on behalf of every tenant; the business's own name/branding comes
-// through in the message text (see Services/WhatsAppNotificationService.js),
-// not from a per-tenant phone number.
+// endpoint).
 //
 // IMPORTANT — Meta only allows free-form "text" messages (what this sends)
 // within 24 hours of the customer's last message to the business ("session
@@ -14,28 +11,44 @@
 // will be rejected by Meta with an error — that failure is caught by the
 // caller and recorded on the Notification (status "failed"), never thrown
 // back into the order-creation flow.
+
+// The ONE seam every send goes through to find out which Meta credentials to
+// use for a given tenant. Right now every tenant shares a single platform-
+// level Meta WhatsApp test account (.env) — the business's own name/branding
+// still comes through in the message TEXT (see
+// Services/WhatsAppNotificationService.js), not from a per-tenant phone
+// number. `tenantId` is accepted (and threaded through by every caller)
+// specifically so that switching to real per-tenant WhatsApp Business
+// accounts later is a change to this one function only — look up the
+// tenant's own stored credentials here instead of reading process.env, and
+// every send call site keeps working unchanged.
 //
-// Read at call time, not module load, so a `.env` change during local dev
-// (server restart) is picked up without reasoning about import order.
-const graphApiUrl = () => {
-  const version = process.env.WHATSAPP_API_VERSION || "v21.0";
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  return `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
+// Read env at call time, not module load, so a `.env` change during local
+// dev (server restart) is picked up without reasoning about import order.
+export const getWhatsAppCredentials = (tenantId) => {
+  void tenantId; // not used yet — see comment above
+  return {
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+    apiVersion: process.env.WHATSAPP_API_VERSION || "v21.0",
+  };
 };
+
+const graphApiUrl = ({ apiVersion, phoneNumberId }) =>
+  `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
 
 // Customers are stored as raw Pakistani-mobile digits ("03XXXXXXXXX", see
 // utils/validators.js) — WhatsApp's Cloud API needs E.164-ish digits with
 // the country code and no leading 0 ("92XXXXXXXXX").
 export const formatPhoneForWhatsApp = (digits) => `92${digits.slice(1)}`;
 
-export const sendWhatsAppTextMessage = async (toDigits, body) => {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+export const sendWhatsAppTextMessage = async (toDigits, body, tenantId) => {
+  const { phoneNumberId, accessToken, apiVersion } = getWhatsAppCredentials(tenantId);
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp is not configured (missing WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN)");
   }
 
-  const res = await fetch(graphApiUrl(), {
+  const res = await fetch(graphApiUrl({ apiVersion, phoneNumberId }), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -60,16 +73,22 @@ export const sendWhatsAppTextMessage = async (toDigits, body) => {
 
 // Kept alongside the text-sending path above for when a tenant's message has
 // been registered with Meta as an approved template (see the module comment)
-// — not called anywhere yet, since no template exists, but the shape is real
-// so wiring it in later is a one-line change at the call site, not a rewrite.
-export const sendWhatsAppTemplateMessage = async (toDigits, templateName, languageCode, bodyParams = []) => {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+// — not called anywhere yet, since no template exists for this app's actual
+// order content, but the shape is real so wiring it in later is a one-line
+// change at the call site, not a rewrite.
+export const sendWhatsAppTemplateMessage = async (
+  toDigits,
+  templateName,
+  languageCode,
+  bodyParams = [],
+  tenantId,
+) => {
+  const { phoneNumberId, accessToken, apiVersion } = getWhatsAppCredentials(tenantId);
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp is not configured (missing WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN)");
   }
 
-  const res = await fetch(graphApiUrl(), {
+  const res = await fetch(graphApiUrl({ apiVersion, phoneNumberId }), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,

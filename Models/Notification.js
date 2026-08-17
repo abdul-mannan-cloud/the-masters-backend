@@ -43,7 +43,11 @@ const notificationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "sent", "delivered", "failed", "read"],
+      // pending_confirmation: prepared but held for an authorized tenant
+      // user to explicitly approve (human-in-the-loop mode) — see
+      // WhatsAppNotificationService. cancelled: a pending_confirmation
+      // notification the user declined to send; Meta is never called for it.
+      enum: ["pending", "pending_confirmation", "sent", "delivered", "failed", "read", "cancelled"],
       default: "pending",
     },
     // ID returned by the messaging provider

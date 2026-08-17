@@ -50,6 +50,18 @@ export const updateSettings = async (tenantId, data, userId) => {
   if (data.whatsapp?.orderCompletedTemplate !== undefined && !data.whatsapp.orderCompletedTemplate.trim()) {
     throw new AppError("Order Completed message template cannot be empty", 400);
   }
+  if (
+    data.whatsapp?.paymentReceivedTemplate !== undefined &&
+    !data.whatsapp.paymentReceivedTemplate.trim()
+  ) {
+    throw new AppError("Payment Received message template cannot be empty", 400);
+  }
+  if (
+    data.notifications?.orderCompletedMode !== undefined &&
+    !["automatic", "confirm"].includes(data.notifications.orderCompletedMode)
+  ) {
+    throw new AppError('orderCompletedMode must be "automatic" or "confirm"', 400);
+  }
 
   const updates = { updatedBy: userId };
 

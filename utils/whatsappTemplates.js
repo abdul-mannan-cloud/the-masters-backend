@@ -50,6 +50,17 @@ Please contact us if you have any questions: {{businessPhone}}
 
 Thank you.`;
 
+export const DEFAULT_PAYMENT_RECEIVED_TEMPLATE = `Hello {{customerName}},
+
+We've received your payment for order #{{orderNumber}}.
+
+Amount Paid: Rs. {{amountPaid}}
+Total Bill: Rs. {{grandTotal}}
+Remaining Balance: Rs. {{remainingAmount}}
+Payment Status: {{paymentStatus}}
+
+Thank you for choosing {{businessName}}.`;
+
 // {{key}} substitution — a token with no matching data key is left as-is
 // rather than replaced with "undefined", so a stray/misspelled placeholder
 // in a business's custom template degrades gracefully instead of corrupting

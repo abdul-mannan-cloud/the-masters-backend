@@ -1,4 +1,5 @@
 import * as PaymentService from "../Services/PaymentService.js";
+import * as WhatsAppNotificationService from "../Services/WhatsAppNotificationService.js";
 import sendErrorResponse from "../utils/errorHandler.js";
 import isValidObjectId from "../utils/validateObjectId.js";
 import AppError from "../utils/AppError.js";
@@ -53,6 +54,14 @@ export const addPayment = async (req, res) => {
     const payment = await PaymentService.addPayment(
       req.user.tenantId,
       data,
+      req.user.userId,
+    );
+    // Fire-and-forget — same reasoning as the order-placed/completed
+    // triggers in orderController.js (see WhatsAppNotificationService): a
+    // WhatsApp send must never delay or fail a successfully recorded payment.
+    WhatsAppNotificationService.sendPaymentReceivedNotification(
+      req.user.tenantId,
+      payment.orderId,
       req.user.userId,
     );
     return res.status(201).json({ message: "Payment recorded successfully.", payment });
