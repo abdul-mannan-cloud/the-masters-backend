@@ -24,7 +24,7 @@ export const listNotifications = async (tenantId, filters = {}) => {
   return Notification.find(query)
     .sort({ createdAt: -1 })
     .populate("customerId", "name phone")
-    .populate("orderId", "orderNumber");
+    .populate("orderId", "orderNumber productionStatus");
 };
 
 export const getNotificationById = async (tenantId, id) => {
