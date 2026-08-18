@@ -11,19 +11,20 @@ import { buildPermissionsObject } from "./permissions.js";
 // additional custom Roles at any time via the existing Role management UI
 // (RoleService already supports arbitrary names — see roles/Form.jsx) for
 // future categories like Supervisor/Accountant, without any schema change.
-// Enough access to actually run the core workflow end to end (browse the
-// catalog, take measurements, serve customers, place + confirm an order,
-// pick inventory, record a payment) but not to touch other employees'
-// accounts or business settings — those stay owner-level by default.
+// Read-only by default — an employee can see the modules they need to do
+// their job, but every write action (create/update/delete) must be granted
+// explicitly by the tenant_admin per Role via the Role management UI. Keeps
+// a brand-new employee account from being able to touch business data the
+// moment it's created; access is opt-in, not opt-out.
 const employeePermissions = buildPermissionsObject(false);
 employeePermissions.dashboard.view = true;
-employeePermissions.customers = { view: true, create: true, update: true, delete: false };
-employeePermissions.measurements = { view: true, create: true, update: true, delete: false };
+employeePermissions.customers.view = true;
+employeePermissions.measurements.view = true;
 employeePermissions.productTypes.view = true;
-employeePermissions.orders = { view: true, create: true, update: true, delete: false };
+employeePermissions.orders.view = true;
 employeePermissions.employees.view = true;
-employeePermissions.payments = { view: true, create: true, update: true, delete: false };
-employeePermissions.inventory = { view: true, create: true, update: true, delete: true };
+employeePermissions.payments.view = true;
+employeePermissions.inventory.view = true;
 
 const DEFAULT_ROLE_DEFINITIONS = [
   {

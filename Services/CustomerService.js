@@ -1,10 +1,27 @@
 import Customer from "../Models/Customer.js";
+import Employee from "../Models/Employee.js";
 import AppError from "../utils/AppError.js";
 import { getNextSequence } from "../utils/counter.js";
 import { normalizeDigits, isValidPhone, isValidCnic, isValidEmail } from "../utils/validators.js";
 
 const VALID_GENDERS = ["male", "female", "other"];
 const CUSTOMER_NUMBER_PREFIX = "cust";
+
+// Shared by create/update — "" from a cleared <select> must unset the
+// assignment, not be looked up as an employee id; a non-empty id must
+// actually belong to this tenant, same ownership check PaymentService
+// already applies to `recordedBy`.
+const resolveAssignedEmployeeId = async (tenantId, assignedEmployeeId) => {
+  if (assignedEmployeeId === undefined) return undefined;
+  if (!assignedEmployeeId) return null;
+  const employee = await Employee.findOne({
+    _id: assignedEmployeeId,
+    tenantId,
+    isDeleted: false,
+  });
+  if (!employee) throw new AppError("Assigned employee not found for this tenant", 404);
+  return assignedEmployeeId;
+};
 
 // e.g. "cust0001" — sequence is per tenant, never reused, never renumbered
 const generateCustomerNumber = async (tenantId, session) => {
@@ -32,7 +49,7 @@ export const getCustomerById = async (tenantId, id) => {
 // single-collection insert on purpose: nothing else is written alongside a
 // customer anymore, so there's nothing to wrap in a transaction.
 export const createCustomer = async (tenantId, data, userId) => {
-  const { name, phone, cnic, address, email, gender, notes } = data;
+  const { name, phone, cnic, address, email, gender, notes, assignedEmployeeId } = data;
 
   if (!name || !phone || !gender) {
     throw new AppError("name, phone, and gender are required", 400);
@@ -67,6 +84,8 @@ export const createCustomer = async (tenantId, data, userId) => {
     }
   }
 
+  const resolvedAssignedEmployeeId = await resolveAssignedEmployeeId(tenantId, assignedEmployeeId);
+
   const customerNumber = await generateCustomerNumber(tenantId);
   const customer = await Customer.create({
     tenantId,
@@ -78,6 +97,7 @@ export const createCustomer = async (tenantId, data, userId) => {
     email,
     gender: gender || undefined, // "" from an unselected dropdown must stay unset, not an invalid enum value
     notes,
+    assignedEmployeeId: resolvedAssignedEmployeeId || undefined,
     createdBy: userId,
     updatedBy: userId,
   });
@@ -85,7 +105,16 @@ export const createCustomer = async (tenantId, data, userId) => {
 };
 
 export const updateCustomer = async (tenantId, id, data, userId) => {
-  const allowedFields = ["name", "phone", "cnic", "address", "email", "gender", "notes"];
+  const allowedFields = [
+    "name",
+    "phone",
+    "cnic",
+    "address",
+    "email",
+    "gender",
+    "notes",
+    "assignedEmployeeId",
+  ];
 
   if (data.phone) {
     data.phone = normalizeDigits(data.phone);
@@ -112,6 +141,9 @@ export const updateCustomer = async (tenantId, id, data, userId) => {
   }
   if (updates.gender === "") updates.gender = undefined; // clearing the dropdown must unset, not set an invalid enum value
   if (updates.cnic === "") updates.cnic = undefined; // same rule as gender — clearing must unset, not write ""
+  if (updates.assignedEmployeeId !== undefined) {
+    updates.assignedEmployeeId = await resolveAssignedEmployeeId(tenantId, updates.assignedEmployeeId);
+  }
   updates.updatedBy = userId;
 
   const customer = await Customer.findOneAndUpdate(

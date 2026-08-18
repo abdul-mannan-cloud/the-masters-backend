@@ -30,6 +30,7 @@ import { backfillCustomerNumbers } from "./utils/backfillCustomerNumbers.js";
 import { backfillTenantSoftDelete } from "./utils/backfillTenantSoftDelete.js";
 import { backfillInventoryPermissions } from "./utils/backfillInventoryPermissions.js";
 import { backfillInventoryTransactionSnapshots } from "./utils/backfillInventoryTransactionSnapshots.js";
+import { backfillEmployeeRolePermissions } from "./utils/backfillEmployeeRolePermissions.js";
 
 // import clothRoutes from "./routes/Cloths.js";
 // import productRoutes from "./routes/Product.js";
@@ -88,6 +89,7 @@ mongoose
     await backfillCustomerNumbers();
     await backfillInventoryPermissions();
     await backfillInventoryTransactionSnapshots();
+    await backfillEmployeeRolePermissions();
     app.listen(port, () => {
       console.log(`App Listening at Port ${port}`);
     });

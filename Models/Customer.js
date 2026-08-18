@@ -52,6 +52,16 @@ const customerSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    // The employee primarily responsible for this customer (e.g. their usual
+    // tailor) — optional, tenant-admin/manager can set it from the Customer
+    // Details panel. Distinct from OrderItemAssignment, which tracks who's
+    // doing a specific workflow step on a specific garment; this is a
+    // lighter, customer-level relationship, not tied to any one order.
+    assignedEmployeeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Employee",
+      default: null,
+    },
     isDeleted: {
       type: Boolean,
       default: false,
