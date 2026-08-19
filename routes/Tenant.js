@@ -30,7 +30,16 @@ router.post(
   upload.single("logo"),
   createTenant,
 );
-router.put("/:id", authentication(), upload.single("logo"), updateTenant);
+// Editing the tenant's business profile (name/logo/address/plan/status) is
+// an owner-level action — there's no "tenant" module in the permission grid
+// for a regular employee to be granted into, so this is restricted to the
+// tenant's own admin (or super_admin) rather than any authenticated user.
+router.put(
+  "/:id",
+  authentication("super_admin", "tenant_admin"),
+  upload.single("logo"),
+  updateTenant,
+);
 router.delete("/:id", authentication("super_admin"), deleteTenant);
 router.patch("/:id/suspend", authentication("super_admin"), suspendTenant);
 router.patch("/:id/activate", authentication("super_admin"), activateTenant);
