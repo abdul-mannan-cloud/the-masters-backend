@@ -3,6 +3,7 @@ import Settings from "../Models/Settings.js";
 import Tenant from "../Models/Tenant.js";
 import AppError from "../utils/AppError.js";
 import { normalizeDigits, isValidPhone, isValidEmail } from "../utils/validators.js";
+import { encryptCredential, decryptCredential } from "../utils/credentialEncryption.js";
 
 // Tenant and Settings each keep their own copy of the same public-facing
 // profile fields (Tenant was built first at signup time; Settings' business
@@ -62,8 +63,28 @@ export const updateSettings = async (tenantId, data, userId) => {
   ) {
     throw new AppError('orderCompletedMode must be "automatic" or "confirm"', 400);
   }
+  if (data.whatsapp?.enabled !== undefined && typeof data.whatsapp.enabled !== "boolean") {
+    throw new AppError("whatsapp.enabled must be true or false", 400);
+  }
 
-  const updates = { updatedBy: userId };
+  // accessToken never round-trips through the frontend (see getSettings /
+  // the `select: false` schema field), so this update path has to treat it
+  // specially: omitted entirely = "leave the stored token alone" (the
+  // generic per-section loop below would otherwise try to write
+  // `undefined`, which Mongoose just ignores, so this isn't strictly
+  // required for that case — but an explicit empty string IS a real
+  // "disconnect/rotate" request and must actually clear the encrypted value
+  // and hasAccessToken flag, not get silently dropped by the generic loop).
+  let accessTokenUpdate;
+  if (data.whatsapp && Object.prototype.hasOwnProperty.call(data.whatsapp, "accessToken")) {
+    const rawToken = data.whatsapp.accessToken;
+    accessTokenUpdate = rawToken
+      ? { "whatsapp.accessToken": encryptCredential(rawToken), "whatsapp.hasAccessToken": true }
+      : { "whatsapp.accessToken": null, "whatsapp.hasAccessToken": false };
+    delete data.whatsapp.accessToken;
+  }
+
+  const updates = { updatedBy: userId, ...accessTokenUpdate };
 
   for (const section of SECTION_FIELDS) {
     if (data[section] !== undefined && typeof data[section] === "object") {
@@ -89,16 +110,20 @@ export const updateSettings = async (tenantId, data, userId) => {
   try {
     session.startTransaction();
 
-    const [settings] = await Promise.all([
-      Settings.findOneAndUpdate(
-        { tenantId },
-        { $set: updates },
-        { new: true, runValidators: true, upsert: true, session },
-      ),
-      hasTenantMirror
-        ? Tenant.findOneAndUpdate({ _id: tenantId, isDeleted: false }, tenantUpdates, { session })
-        : Promise.resolve(null),
-    ]);
+    // Sequential, not Promise.all — a MongoDB ClientSession may only run one
+    // operation at a time; firing both writes concurrently on the same
+    // session desyncs the driver's transaction-number tracking from the
+    // server's (surfaces as a "does not match any in-progress transactions"
+    // error), intermittently but reproducibly whenever a business.* field
+    // actually triggers the Tenant mirror write.
+    const settings = await Settings.findOneAndUpdate(
+      { tenantId },
+      { $set: updates },
+      { new: true, runValidators: true, upsert: true, session },
+    );
+    if (hasTenantMirror) {
+      await Tenant.findOneAndUpdate({ _id: tenantId, isDeleted: false }, tenantUpdates, { session });
+    }
 
     await session.commitTransaction();
     return settings;
@@ -108,4 +133,24 @@ export const updateSettings = async (tenantId, data, userId) => {
   } finally {
     session.endSession();
   }
+};
+
+// INTERNAL ONLY — resolves the decrypted credentials a WhatsApp send
+// actually needs. Never call this from a controller; the only consumer is
+// utils/whatsappClient.js, which never returns its result to an HTTP
+// response. Explicitly opts into the select:false accessToken field, which
+// is exactly why every other read path in this service (and the controller
+// responses built on top of it) stays safe by default.
+export const getTenantWhatsAppCredentials = async (tenantId) => {
+  const settings = await Settings.findOne({ tenantId }).select("+whatsapp.accessToken");
+  if (!settings) return null;
+
+  return {
+    enabled: settings.whatsapp?.enabled !== false,
+    phoneNumber: settings.whatsapp?.phoneNumber || "",
+    phoneNumberId: settings.whatsapp?.phoneNumberId || "",
+    businessAccountId: settings.whatsapp?.businessAccountId || "",
+    accessToken: decryptCredential(settings.whatsapp?.accessToken),
+    apiVersion: settings.whatsapp?.apiVersion || "",
+  };
 };

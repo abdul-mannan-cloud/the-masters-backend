@@ -52,13 +52,38 @@ const settingsSchema = new mongoose.Schema(
       orderCompletedMode: { type: String, enum: ["automatic", "confirm"], default: "automatic" },
     },
 
-    // Per-business customizable WhatsApp message text (rendered with
-    // {{placeholders}}, see utils/whatsappTemplates.js). Sending itself uses
-    // platform-level Meta WhatsApp Cloud API credentials (.env) — there is no
-    // per-tenant phone number/access token here, only message content.
-    // Whether these actually get sent is gated by notifications.* above, not
-    // by a field in here.
+    // Per-tenant WhatsApp Business account — each business connects its OWN
+    // Meta WhatsApp Business number; there is no shared/platform-level
+    // sender once a tenant configures this (see utils/whatsappClient.js).
+    // `enabled` is the master switch: WhatsApp is entirely inert for this
+    // tenant while false, regardless of notifications.autoNotifyOnX below.
+    // Automatic-vs-human-approval is NOT duplicated here — that's still
+    // notifications.orderCompletedMode above (extends the existing field
+    // rather than adding a second, possibly-contradictory one).
     whatsapp: {
+      enabled: { type: Boolean, default: true },
+      // Display-only — shown in Settings/messages as "our number is X".
+      // Meta's Cloud API sends via phoneNumberId, never this raw number.
+      phoneNumber: { type: String, default: "" },
+      phoneNumberId: { type: String, default: "" },
+      // Stored for completeness (Meta account management/webhooks) — the
+      // current send call only needs phoneNumberId, see whatsappClient.js.
+      businessAccountId: { type: String, default: "" },
+      // ENCRYPTED at rest (see utils/credentialEncryption.js) and never
+      // selected by a plain query — a controller response can only expose
+      // this by explicitly opting in with .select('+whatsapp.accessToken'),
+      // which nothing outside SettingsService's dedicated credential lookup
+      // ever does.
+      accessToken: { type: String, default: null, select: false },
+      // Denormalized alongside accessToken so the frontend/API can show
+      // "connected" without the token itself ever leaving the backend.
+      hasAccessToken: { type: Boolean, default: false },
+      // Empty means "use the platform default" (see whatsappClient.js) —
+      // most tenants never need to touch this.
+      apiVersion: { type: String, default: "" },
+
+      // Per-business customizable WhatsApp message text (rendered with
+      // {{placeholders}}, see utils/whatsappTemplates.js).
       orderPlacedTemplate: { type: String, default: DEFAULT_ORDER_PLACED_TEMPLATE },
       orderCompletedTemplate: { type: String, default: DEFAULT_ORDER_COMPLETED_TEMPLATE },
       paymentReceivedTemplate: { type: String, default: DEFAULT_PAYMENT_RECEIVED_TEMPLATE },

@@ -242,21 +242,25 @@ export const updateTenant = async (id, data, userId) => {
   try {
     session.startTransaction();
 
-    const [tenant] = await Promise.all([
-      Tenant.findOneAndUpdate({ _id: id, isDeleted: false }, updates, {
-        new: true,
-        runValidators: true,
-        session,
-      }),
-      hasBusinessMirror
-        ? Settings.findOneAndUpdate(
-            { tenantId: id },
-            { $set: { ...businessMirror, updatedBy: userId } },
-            { upsert: true, session },
-          )
-        : Promise.resolve(null),
-    ]);
+    // Sequential, not Promise.all — a MongoDB ClientSession only supports one
+    // in-flight operation at a time; running both writes concurrently on the
+    // same session desyncs the driver's transaction-number tracking from the
+    // server's ("does not match any in-progress transactions"), reproducibly
+    // whenever hasBusinessMirror is true (see SettingsService.updateSettings,
+    // which had the identical bug in the mirror-image direction).
+    const tenant = await Tenant.findOneAndUpdate({ _id: id, isDeleted: false }, updates, {
+      new: true,
+      runValidators: true,
+      session,
+    });
     if (!tenant) throw new AppError("Tenant not found", 404);
+    if (hasBusinessMirror) {
+      await Settings.findOneAndUpdate(
+        { tenantId: id },
+        { $set: { ...businessMirror, updatedBy: userId } },
+        { upsert: true, session },
+      );
+    }
 
     await session.commitTransaction();
     return tenant;

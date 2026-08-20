@@ -12,26 +12,58 @@
 // caller and recorded on the Notification (status "failed"), never thrown
 // back into the order-creation flow.
 
+const PLATFORM_DEFAULT_API_VERSION = "v21.0";
+// Warn at most once per boot, not once per send, if a tenant falls back to
+// the shared dev credentials — noisy but not log-spam.
+const warnedFallbackTenants = new Set();
+
 // The ONE seam every send goes through to find out which Meta credentials to
-// use for a given tenant. Right now every tenant shares a single platform-
-// level Meta WhatsApp test account (.env) — the business's own name/branding
-// still comes through in the message TEXT (see
-// Services/WhatsAppNotificationService.js), not from a per-tenant phone
-// number. `tenantId` is accepted (and threaded through by every caller)
-// specifically so that switching to real per-tenant WhatsApp Business
-// accounts later is a change to this one function only — look up the
-// tenant's own stored credentials here instead of reading process.env, and
-// every send call site keeps working unchanged.
-//
-// Read env at call time, not module load, so a `.env` change during local
-// dev (server restart) is picked up without reasoning about import order.
-export const getWhatsAppCredentials = (tenantId) => {
-  void tenantId; // not used yet — see comment above
-  return {
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
-    accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
-    apiVersion: process.env.WHATSAPP_API_VERSION || "v21.0",
-  };
+// use for a given tenant — each tenant now connects its OWN WhatsApp
+// Business account (Settings.whatsapp, see Models/Settings.js), resolved
+// here instead of reading process.env. A tenant with nothing configured
+// gets a clear "not configured" failure in production; outside production
+// only, it falls back to the shared .env test account so local development
+// keeps working without every developer configuring a real Meta account —
+// see .env's comment on WHATSAPP_* for why those are dev-only now.
+export const getWhatsAppCredentials = async (tenantId) => {
+  // Deferred import avoids a load-order cycle: SettingsService doesn't
+  // import this module, but keeping the dependency lazy here means this
+  // client file has no hard compile-time dependency on the service layer,
+  // matching "the client should remain responsible only for communication
+  // with Meta" (Services/WhatsAppNotificationService.js already imports
+  // SettingsService directly for everything else).
+  const { getTenantWhatsAppCredentials } = await import("../Services/SettingsService.js");
+  const tenantCreds = await getTenantWhatsAppCredentials(tenantId);
+
+  if (tenantCreds?.enabled === false) {
+    return { enabled: false, phoneNumberId: null, accessToken: null, apiVersion: PLATFORM_DEFAULT_API_VERSION };
+  }
+
+  if (tenantCreds?.phoneNumberId && tenantCreds?.accessToken) {
+    return {
+      enabled: true,
+      phoneNumberId: tenantCreds.phoneNumberId,
+      accessToken: tenantCreds.accessToken,
+      apiVersion: tenantCreds.apiVersion || PLATFORM_DEFAULT_API_VERSION,
+    };
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    if (!warnedFallbackTenants.has(String(tenantId))) {
+      warnedFallbackTenants.add(String(tenantId));
+      console.warn(
+        `[whatsapp] Tenant ${tenantId} has no WhatsApp credentials configured — falling back to the shared .env test account (dev-only; this fallback never applies when NODE_ENV=production).`,
+      );
+    }
+    return {
+      enabled: true,
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+      accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+      apiVersion: process.env.WHATSAPP_API_VERSION || PLATFORM_DEFAULT_API_VERSION,
+    };
+  }
+
+  return { enabled: true, phoneNumberId: null, accessToken: null, apiVersion: PLATFORM_DEFAULT_API_VERSION };
 };
 
 const graphApiUrl = ({ apiVersion, phoneNumberId }) =>
@@ -43,9 +75,12 @@ const graphApiUrl = ({ apiVersion, phoneNumberId }) =>
 export const formatPhoneForWhatsApp = (digits) => `92${digits.slice(1)}`;
 
 export const sendWhatsAppTextMessage = async (toDigits, body, tenantId) => {
-  const { phoneNumberId, accessToken, apiVersion } = getWhatsAppCredentials(tenantId);
+  const { enabled, phoneNumberId, accessToken, apiVersion } = await getWhatsAppCredentials(tenantId);
+  if (!enabled) {
+    throw new Error("WhatsApp is disabled for this business");
+  }
   if (!phoneNumberId || !accessToken) {
-    throw new Error("WhatsApp is not configured (missing WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN)");
+    throw new Error("This business's WhatsApp configuration is incomplete");
   }
 
   const res = await fetch(graphApiUrl({ apiVersion, phoneNumberId }), {
@@ -83,9 +118,12 @@ export const sendWhatsAppTemplateMessage = async (
   bodyParams = [],
   tenantId,
 ) => {
-  const { phoneNumberId, accessToken, apiVersion } = getWhatsAppCredentials(tenantId);
+  const { enabled, phoneNumberId, accessToken, apiVersion } = await getWhatsAppCredentials(tenantId);
+  if (!enabled) {
+    throw new Error("WhatsApp is disabled for this business");
+  }
   if (!phoneNumberId || !accessToken) {
-    throw new Error("WhatsApp is not configured (missing WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_ACCESS_TOKEN)");
+    throw new Error("This business's WhatsApp configuration is incomplete");
   }
 
   const res = await fetch(graphApiUrl({ apiVersion, phoneNumberId }), {

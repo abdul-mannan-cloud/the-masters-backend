@@ -102,7 +102,7 @@ const createPendingConfirmation = async (tenantId, { customerId, orderId, messag
 export const sendOrderPlacedNotification = async (tenantId, orderId, userId) => {
   try {
     const settings = await SettingsService.getSettings(tenantId, userId);
-    if (!settings.notifications?.autoNotifyOnOrderCreated) return;
+    if (!settings.whatsapp?.enabled || !settings.notifications?.autoNotifyOnOrderCreated) return;
 
     const { order, customer, items, totalPaid, remainingBalance } =
       await OrderService.getCheckout(tenantId, orderId);
@@ -190,7 +190,7 @@ const buildOrderCompletedPayload = async (tenantId, orderId, userId) => {
 export const sendOrderCompletedNotification = async (tenantId, orderId, userId) => {
   try {
     const settings = await SettingsService.getSettings(tenantId, userId);
-    if (!settings.notifications?.autoNotifyOnOrderReady) return;
+    if (!settings.whatsapp?.enabled || !settings.notifications?.autoNotifyOnOrderReady) return;
 
     const payload = await buildOrderCompletedPayload(tenantId, orderId, userId);
     if (!payload) return;
@@ -212,7 +212,7 @@ export const sendOrderCompletedNotification = async (tenantId, orderId, userId) 
 export const sendPaymentReceivedNotification = async (tenantId, orderId, userId) => {
   try {
     const settings = await SettingsService.getSettings(tenantId, userId);
-    if (!settings.notifications?.autoNotifyOnPaymentReceived) return;
+    if (!settings.whatsapp?.enabled || !settings.notifications?.autoNotifyOnPaymentReceived) return;
 
     const { order, customer, totalPaid, remainingBalance } =
       await OrderService.getCheckout(tenantId, orderId);
