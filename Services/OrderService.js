@@ -205,7 +205,7 @@ export const updateOrder = async (tenantId, id, data, userId) => {
       const items = await OrderItem.find({
         orderId: id,
         tenantId,
-        fabricId: { $ne: null },
+        $or: [{ fabricId: { $ne: null } }, { "materials.0": { $exists: true } }],
       }).session(session);
       const customer = await Customer.findOne({ _id: order.customerId, tenantId }).session(
         session,
@@ -311,11 +311,14 @@ export const confirmOrder = async (tenantId, orderId, userId) => {
   try {
     session.startTransaction();
 
+    // Items with only materials (no fabricId) still need to be considered —
+    // validateStock/deductInventory already skip whichever half (fabric or
+    // materials) an item doesn't use, see InventoryService.itemConsumptions.
     const items = await OrderItem.find({
       orderId,
       tenantId,
       status: { $ne: "cancelled" },
-      fabricId: { $ne: null },
+      $or: [{ fabricId: { $ne: null } }, { "materials.0": { $exists: true } }],
     }).session(session);
 
     if (items.length) {
@@ -371,7 +374,7 @@ export const deleteOrder = async (tenantId, id, userId) => {
         transactionType: "Return",
       }).session(session);
 
-      const fabricItems = items.filter((item) => item.fabricId);
+      const fabricItems = items.filter((item) => item.fabricId || item.materials?.length);
       if (!alreadyRestored && fabricItems.length) {
         const customer = await Customer.findOne({ _id: order.customerId, tenantId }).session(
           session,
@@ -446,6 +449,7 @@ export const getBill = async (tenantId, orderId) => {
       fabricId: item.fabricId,
       requiredFabricLength: item.requiredFabricLength,
       fabricUnit: item.fabricUnit,
+      materials: item.materials,
     })),
   };
 };
@@ -530,13 +534,15 @@ export const getOrderDetails = async (tenantId, orderId) => {
   const itemIds = items.map((item) => item._id);
   const measurementIds = items.map((item) => item.measurementId);
   const fabricIds = items.map((item) => item.fabricId).filter(Boolean);
+  const materialIds = items.flatMap((item) => item.materials.map((m) => m.inventoryId));
+  const inventoryIds = [...new Set([...fabricIds, ...materialIds].map(String))];
 
-  const [measurements, assignments, fabrics, inventoryTransactions] = await Promise.all([
+  const [measurements, assignments, inventoryItems, inventoryTransactions] = await Promise.all([
     Measurement.find({ _id: { $in: measurementIds }, tenantId }),
     OrderItemAssignment.find({ orderItemId: { $in: itemIds }, tenantId }).sort({
       "workflowStep.sequence": 1,
     }),
-    fabricIds.length ? Inventory.find({ _id: { $in: fabricIds }, tenantId }) : [],
+    inventoryIds.length ? Inventory.find({ _id: { $in: inventoryIds }, tenantId }) : [],
     // The deduction record per item, if the order has been confirmed — lets
     // Order Details show exactly which ledger entry consumed this item's
     // fabric (see inventory/View.jsx for the other side of that same row).
@@ -547,10 +553,16 @@ export const getOrderDetails = async (tenantId, orderId) => {
     }),
   ]);
   const measurementById = Object.fromEntries(measurements.map((m) => [String(m._id), m]));
-  const fabricById = Object.fromEntries(fabrics.map((f) => [String(f._id), f]));
-  const inventoryTransactionByItemId = Object.fromEntries(
-    inventoryTransactions.map((t) => [String(t.orderItemId), t]),
-  );
+  const fabricById = Object.fromEntries(inventoryItems.map((f) => [String(f._id), f]));
+  // Grouped, not a single value per item — an item's fabric AND each of its
+  // materials[] each write their own "Order Consumption" row (see
+  // InventoryService.deductInventory), so more than one can exist per item.
+  const inventoryTransactionsByItemId = new Map();
+  for (const t of inventoryTransactions) {
+    const key = String(t.orderItemId);
+    if (!inventoryTransactionsByItemId.has(key)) inventoryTransactionsByItemId.set(key, []);
+    inventoryTransactionsByItemId.get(key).push(t);
+  }
 
   const employeeIds = [...new Set(assignments.map((a) => String(a.employeeId)))];
   const employees = employeeIds.length
@@ -578,15 +590,25 @@ export const getOrderDetails = async (tenantId, orderId) => {
           color: fabricById[String(item.fabricId)]?.color || null,
         }
       : null,
-    inventoryTransaction: inventoryTransactionByItemId[String(item._id)]
-      ? {
-          _id: inventoryTransactionByItemId[String(item._id)]._id,
-          quantity: inventoryTransactionByItemId[String(item._id)].quantity,
-          previousStock: inventoryTransactionByItemId[String(item._id)].previousStock,
-          newStock: inventoryTransactionByItemId[String(item._id)].newStock,
-          createdAt: inventoryTransactionByItemId[String(item._id)].createdAt,
-        }
-      : null,
+    materials: item.materials.map((m) => ({
+      inventoryId: m.inventoryId,
+      quantity: m.quantity,
+      unit: m.unit,
+      fabricName: fabricById[String(m.inventoryId)]?.fabricName || null,
+    })),
+    // One entry per inventory item this OrderItem actually consumed (fabric
+    // and/or each material), so Order Details can show exactly which ledger
+    // row backs each line — not just the first one.
+    inventoryTransactions: (inventoryTransactionsByItemId.get(String(item._id)) || []).map(
+      (t) => ({
+        _id: t._id,
+        inventoryId: t.inventoryId,
+        quantity: t.quantity,
+        previousStock: t.previousStock,
+        newStock: t.newStock,
+        createdAt: t.createdAt,
+      }),
+    ),
     measurement: measurementById[String(item.measurementId)] || null,
     assignedEmployees: assignments
       .filter((a) => String(a.orderItemId) === String(item._id))

@@ -86,6 +86,38 @@ export const resolveFabricSnapshot = async (
   return { fabricId, requiredFabricLength, fabricUnit: inventory.unit };
 };
 
+// Same idea as resolveFabricSnapshot but for the materials[] array (buttons,
+// thread, etc. — see Models/OrderItem.js). Each entry is checked against
+// Inventory (tenant-scoped, not deleted, enough stock for THIS item alone)
+// and gets its unit snapshotted; createOrderWithItems' aggregate validateStock
+// pass still catches two items overrunning the same material together.
+export const resolveMaterialsSnapshot = async (tenantId, materials, quantity, session) => {
+  if (!materials || materials.length === 0) return [];
+
+  const resolved = [];
+  for (const { inventoryId, quantity: materialQty } of materials) {
+    if (!inventoryId || !materialQty || materialQty <= 0) {
+      throw new AppError("Each material requires inventoryId and a quantity greater than 0", 400);
+    }
+    const inventory = await Inventory.findOne({
+      _id: inventoryId,
+      tenantId,
+      isDeleted: false,
+    }).session(session);
+    if (!inventory) throw new AppError("Inventory item not found for this tenant", 404);
+
+    const needed = materialQty * (quantity || 1);
+    if (inventory.availableQuantity < needed) {
+      throw new AppError(
+        `Insufficient inventory for ${inventory.fabricName}: needs ${needed} ${inventory.unit}, only ${inventory.availableQuantity} ${inventory.unit} available`,
+        400,
+      );
+    }
+    resolved.push({ inventoryId, quantity: materialQty, unit: inventory.unit });
+  }
+  return resolved;
+};
+
 // Each selected option must name a real option on the ProductType, with a
 // value from that option's own list — otherwise a garment could be billed
 // for a customization that was never actually offered. Distinct from the
@@ -152,6 +184,7 @@ export const createOrderWithItems = async (
     items.map((i) => ({
       fabricId: i.fabricId || null,
       requiredFabricLength: i.requiredFabricLength || 0,
+      materials: i.materials || [],
       quantity: i.quantity || 1,
     })),
     session,
@@ -189,6 +222,7 @@ export const createOrderWithItems = async (
       unitPrice: requestedUnitPrice,
       fabricId,
       requiredFabricLength,
+      materials,
     } = rawItem;
 
     let measurement;
@@ -238,6 +272,7 @@ export const createOrderWithItems = async (
       quantity,
       session,
     );
+    const materialsSnapshot = await resolveMaterialsSnapshot(tenantId, materials, quantity, session);
 
     // Default price always comes from the ProductType; an adjusted price is
     // only ever honored if the caller was found permitted (see canAdjustPrice
@@ -264,6 +299,7 @@ export const createOrderWithItems = async (
           unitPrice,
           instructions,
           ...fabricSnapshot,
+          materials: materialsSnapshot,
           createdBy: userId,
           updatedBy: userId,
         },
@@ -353,6 +389,7 @@ export const createOrderItem = async (tenantId, data, userId) => {
     instructions,
     fabricId,
     requiredFabricLength,
+    materials,
   } = data;
 
   if (!orderId || !productTypeId || !measurementId) {
@@ -390,6 +427,7 @@ export const createOrderItem = async (tenantId, data, userId) => {
       quantity,
       session,
     );
+    const materialsSnapshot = await resolveMaterialsSnapshot(tenantId, materials, quantity, session);
 
     // SNAPSHOT — copy the price and name now; ProductType changes later must not affect this item
     const [item] = await OrderItem.create(
@@ -405,6 +443,7 @@ export const createOrderItem = async (tenantId, data, userId) => {
           unitPrice: productType.basePrice,
           instructions,
           ...fabricSnapshot,
+          materials: materialsSnapshot,
           createdBy: userId,
           updatedBy: userId,
         },
@@ -429,8 +468,15 @@ export const createOrderItem = async (tenantId, data, userId) => {
 };
 
 export const updateOrderItem = async (tenantId, id, data, userId) => {
-  const { selectedOptions, quantity, instructions, status, fabricId, requiredFabricLength } =
-    data;
+  const {
+    selectedOptions,
+    quantity,
+    instructions,
+    status,
+    fabricId,
+    requiredFabricLength,
+    materials,
+  } = data;
 
   if (quantity !== undefined && quantity < 1) {
     throw new AppError("quantity must be at least 1", 400);
@@ -475,6 +521,17 @@ export const updateOrderItem = async (tenantId, id, data, userId) => {
       item.fabricId = fabricSnapshot.fabricId;
       item.requiredFabricLength = fabricSnapshot.requiredFabricLength;
       item.fabricUnit = fabricSnapshot.fabricUnit;
+    }
+
+    // Same "locked once confirmed" rule as fabric above.
+    if (materials !== undefined) {
+      if (order.confirmedAt) {
+        throw new AppError(
+          "Order has already been confirmed — materials can no longer be changed",
+          409,
+        );
+      }
+      item.materials = await resolveMaterialsSnapshot(tenantId, materials, item.quantity, session);
     }
 
     item.updatedBy = userId;

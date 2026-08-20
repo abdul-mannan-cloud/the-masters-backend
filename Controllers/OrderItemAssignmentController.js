@@ -86,3 +86,52 @@ export const deleteOrderItemAssignment = async (req, res) => {
     return sendErrorResponse(res, err);
   }
 };
+
+export const bulkAssignEmployees = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    if (!isValidObjectId(orderId)) {
+      throw new AppError("Invalid order ID format", 400);
+    }
+    const { assignments } = req.body;
+    const result = await OrderItemAssignmentService.bulkAssignEmployees(
+      req.user.tenantId,
+      orderId,
+      assignments,
+      req.user.userId,
+    );
+    return res.status(201).json({
+      message: result.statusChanged
+        ? "Employees assigned — order moved to In Progress."
+        : "Employees assigned successfully.",
+      ...result,
+    });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};
+
+// Self-service — no orders.update permission required, only that the caller
+// is updating their OWN assignment (see updateMyAssignmentStatus).
+export const updateMyAssignmentStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) {
+      throw new AppError("Invalid assignment ID format", 400);
+    }
+    if (!req.user.employeeId) {
+      throw new AppError("No employee profile linked to this account", 403);
+    }
+    const { status } = req.body;
+    const assignment = await OrderItemAssignmentService.updateMyAssignmentStatus(
+      req.user.tenantId,
+      req.user.employeeId,
+      id,
+      status,
+      req.user.userId,
+    );
+    return res.status(200).json({ message: "Status updated successfully.", assignment });
+  } catch (err) {
+    return sendErrorResponse(res, err);
+  }
+};

@@ -312,22 +312,40 @@ export const adjustInventory = async (tenantId, id, data, userId, session) => {
   return item;
 };
 
-// Aggregates fabric requirements across the given OrderItems (each already
-// carrying fabricId/requiredFabricLength/quantity) and confirms every fabric
-// has enough availableQuantity. Throws before anything is deducted, so a
-// short fabric blocks the whole Order confirmation atomically.
+// Flattens one OrderItem's fabric + materials[] into a single list of
+// { inventoryId, needed } consumptions, scaled by the item's quantity — the
+// one place that scaling rule lives, shared by validateStock/deductInventory/
+// restoreInventory so they can never drift apart on how "needed" is computed.
+const itemConsumptions = (item) => {
+  const qty = item.quantity || 1;
+  const consumptions = [];
+  if (item.fabricId) {
+    const needed = (item.requiredFabricLength || 0) * qty;
+    if (needed > 0) consumptions.push({ inventoryId: item.fabricId, needed });
+  }
+  for (const material of item.materials || []) {
+    const needed = (material.quantity || 0) * qty;
+    if (needed > 0) consumptions.push({ inventoryId: material.inventoryId, needed });
+  }
+  return consumptions;
+};
+
+// Aggregates fabric + materials[] requirements across the given OrderItems
+// and confirms every inventory item drawn on has enough availableQuantity.
+// Throws before anything is deducted, so a single short item blocks the
+// whole Order confirmation atomically.
 export const validateStock = async (tenantId, items, session) => {
-  const requiredByFabric = new Map();
+  const requiredByInventory = new Map();
   for (const item of items) {
-    if (!item.fabricId) continue;
-    const key = String(item.fabricId);
-    const needed = (item.requiredFabricLength || 0) * (item.quantity || 1);
-    requiredByFabric.set(key, (requiredByFabric.get(key) || 0) + needed);
+    for (const { inventoryId, needed } of itemConsumptions(item)) {
+      const key = String(inventoryId);
+      requiredByInventory.set(key, (requiredByInventory.get(key) || 0) + needed);
+    }
   }
 
-  for (const [fabricId, needed] of requiredByFabric) {
+  for (const [inventoryId, needed] of requiredByInventory) {
     const inventory = await Inventory.findOne({
-      _id: fabricId,
+      _id: inventoryId,
       tenantId,
       isDeleted: false,
     }).session(session ?? null);
@@ -351,51 +369,49 @@ export const deductInventory = async (tenantId, items, orderId, userId, session,
   const performedByName = await resolvePerformedByName(userId, session);
 
   for (const item of items) {
-    if (!item.fabricId) continue;
-    const needed = (item.requiredFabricLength || 0) * (item.quantity || 1);
-    if (needed <= 0) continue;
+    for (const { inventoryId, needed } of itemConsumptions(item)) {
+      const inventory = await Inventory.findOne({
+        _id: inventoryId,
+        tenantId,
+        isDeleted: false,
+      }).session(session);
+      if (!inventory) throw new AppError("Inventory item not found for this tenant", 404);
 
-    const inventory = await Inventory.findOne({
-      _id: item.fabricId,
-      tenantId,
-      isDeleted: false,
-    }).session(session);
-    if (!inventory) throw new AppError("Inventory item not found for this tenant", 404);
+      const previousStock = inventory.availableQuantity;
+      if (previousStock < needed) {
+        throw new AppError(
+          `Insufficient inventory for ${inventory.fabricName}: needs ${needed} ${inventory.unit}, only ${previousStock} ${inventory.unit} available`,
+          400,
+        );
+      }
+      const newStock = previousStock - needed;
 
-    const previousStock = inventory.availableQuantity;
-    if (previousStock < needed) {
-      throw new AppError(
-        `Insufficient inventory for ${inventory.fabricName}: needs ${needed} ${inventory.unit}, only ${previousStock} ${inventory.unit} available`,
-        400,
+      inventory.availableQuantity = newStock;
+      inventory.updatedBy = userId;
+      await inventory.save({ session });
+
+      await InventoryTransaction.create(
+        [
+          {
+            tenantId,
+            inventoryId: inventory._id,
+            orderId,
+            orderItemId: item._id,
+            orderNumber: meta.orderNumber ?? null,
+            customerName: meta.customerName ?? null,
+            productName: item.garmentType ?? null,
+            performedByName,
+            transactionType: "Order Consumption",
+            quantity: needed,
+            previousStock,
+            newStock,
+            remarks: "Deducted on order confirmation",
+            createdBy: userId,
+          },
+        ],
+        { session },
       );
     }
-    const newStock = previousStock - needed;
-
-    inventory.availableQuantity = newStock;
-    inventory.updatedBy = userId;
-    await inventory.save({ session });
-
-    await InventoryTransaction.create(
-      [
-        {
-          tenantId,
-          inventoryId: inventory._id,
-          orderId,
-          orderItemId: item._id,
-          orderNumber: meta.orderNumber ?? null,
-          customerName: meta.customerName ?? null,
-          productName: item.garmentType ?? null,
-          performedByName,
-          transactionType: "Order Consumption",
-          quantity: needed,
-          previousStock,
-          newStock,
-          remarks: "Deducted on order confirmation",
-          createdBy: userId,
-        },
-      ],
-      { session },
-    );
   }
 };
 
@@ -407,43 +423,39 @@ export const restoreInventory = async (tenantId, items, orderId, userId, session
   const performedByName = await resolvePerformedByName(userId, session);
 
   for (const item of items) {
-    if (!item.fabricId) continue;
-    const restored = (item.requiredFabricLength || 0) * (item.quantity || 1);
-    if (restored <= 0) continue;
+    for (const { inventoryId, needed: restored } of itemConsumptions(item)) {
+      const inventory = await Inventory.findOne({ _id: inventoryId, tenantId }).session(session);
+      if (!inventory) continue;
 
-    const inventory = await Inventory.findOne({ _id: item.fabricId, tenantId }).session(
-      session,
-    );
-    if (!inventory) continue;
+      const previousStock = inventory.availableQuantity;
+      const newStock = previousStock + restored;
 
-    const previousStock = inventory.availableQuantity;
-    const newStock = previousStock + restored;
+      inventory.availableQuantity = newStock;
+      inventory.updatedBy = userId;
+      await inventory.save({ session });
 
-    inventory.availableQuantity = newStock;
-    inventory.updatedBy = userId;
-    await inventory.save({ session });
-
-    await InventoryTransaction.create(
-      [
-        {
-          tenantId,
-          inventoryId: inventory._id,
-          orderId,
-          orderItemId: item._id,
-          orderNumber: meta.orderNumber ?? null,
-          customerName: meta.customerName ?? null,
-          productName: item.garmentType ?? null,
-          performedByName,
-          transactionType: "Return",
-          quantity: restored,
-          previousStock,
-          newStock,
-          remarks: meta.remarks || "Restored — order cancelled before production began",
-          createdBy: userId,
-        },
-      ],
-      { session },
-    );
+      await InventoryTransaction.create(
+        [
+          {
+            tenantId,
+            inventoryId: inventory._id,
+            orderId,
+            orderItemId: item._id,
+            orderNumber: meta.orderNumber ?? null,
+            customerName: meta.customerName ?? null,
+            productName: item.garmentType ?? null,
+            performedByName,
+            transactionType: "Return",
+            quantity: restored,
+            previousStock,
+            newStock,
+            remarks: meta.remarks || "Restored — order cancelled before production began",
+            createdBy: userId,
+          },
+        ],
+        { session },
+      );
+    }
   }
 };
 

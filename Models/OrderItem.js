@@ -10,6 +10,32 @@ const selectedOptionSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// One additional material this garment consumes besides its primary fabric
+// (fabricId/requiredFabricLength below) — e.g. buttons, thread, collar
+// material. Same snapshot convention: unit is copied from Inventory.unit at
+// pick time so a later unit change on the Inventory item can't alter how an
+// already-placed order reads.
+const materialUsageSchema = new mongoose.Schema(
+  {
+    inventoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Inventory",
+      required: true,
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    unit: {
+      type: String,
+      enum: ["meter", "yard", "piece", "roll"],
+      required: true,
+    },
+  },
+  { _id: false },
+);
+
 const orderItemSchema = new mongoose.Schema(
   {
     tenantId: {
@@ -78,6 +104,13 @@ const orderItemSchema = new mongoose.Schema(
       type: String,
       enum: ["meter", "yard", "piece", "roll", null],
       default: null,
+    },
+    // Additional materials beyond the primary fabric above — buttons,
+    // thread, lining, etc. Empty for garments that only need fabricId.
+    // Deducted/restored/validated by InventoryService alongside fabricId.
+    materials: {
+      type: [materialUsageSchema],
+      default: [],
     },
     instructions: {
       type: String,
