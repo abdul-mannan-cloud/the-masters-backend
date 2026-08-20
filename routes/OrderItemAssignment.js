@@ -5,7 +5,7 @@ import {
   createOrderItemAssignment,
   updateOrderItemAssignment,
   deleteOrderItemAssignment,
-  bulkAssignEmployees,
+  syncOrderAssignments,
   updateMyAssignmentStatus,
 } from "../Controllers/OrderItemAssignmentController.js";
 import authentication from "../middlewares/authMiddleware.js";
@@ -28,16 +28,18 @@ router.post(
   authorize("orders", "create"),
   createOrderItemAssignment,
 );
-// "Assign Employees" on an order — multiple (orderItem, workflowStep,
-// employee) tuples in one atomic request, auto-advancing pending -> in_progress.
-// Gated the same as any other order-management write (orders.update): the
-// Owner/tenant_admin always passes, an Employee only if explicitly granted —
-// satisfies "regular employee cannot assign unless given permission".
-router.post(
+// "Assign Employees" on an order — a flat employeeIds list, reconciled
+// (added/removed) against whoever is currently assigned, auto-advancing
+// pending -> in_progress. Gated the same as any other order-management write
+// (orders.update): the Owner/tenant_admin always passes, an Employee only if
+// explicitly granted — satisfies "regular employee cannot assign unless
+// given permission". PUT, not POST — this sets the order's full assignment
+// roster rather than appending, so it's idempotent to resend.
+router.put(
   "/order/:orderId/assign",
   authentication("tenant_admin", "manager", "employee"),
   authorize("orders", "update"),
-  bulkAssignEmployees,
+  syncOrderAssignments,
 );
 // Self-service — an employee reports progress on their OWN assigned step.
 // Deliberately NOT behind authorize("orders","update"): a view-only employee

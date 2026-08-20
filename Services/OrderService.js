@@ -62,15 +62,46 @@ export const listOrders = async (tenantId, filters = {}) => {
     .sort({ createdAt: 1 });
 
   const itemsByOrderId = new Map();
+  const orderIdByItemId = new Map();
   for (const item of items) {
     const key = String(item.orderId);
     if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
     itemsByOrderId.get(key).push({ _id: item._id, garmentType: item.garmentType });
+    orderIdByItemId.set(String(item._id), key);
+  }
+
+  // Assigned-employee summary for the Orders list ("Ahmed (Tailor), Ali
+  // (Cutter)...") — same batched-not-per-row query shape as `items` above.
+  const itemIds = items.map((i) => i._id);
+  const assignments = itemIds.length
+    ? await OrderItemAssignment.find({
+        orderItemId: { $in: itemIds },
+        tenantId,
+        status: { $ne: "reassigned" },
+      }).select("orderItemId employeeId workflowStep")
+    : [];
+  const employeeIds = [...new Set(assignments.map((a) => String(a.employeeId)))];
+  const employees = employeeIds.length
+    ? await Employee.find({ _id: { $in: employeeIds }, tenantId }).select("name")
+    : [];
+  const employeeNameById = Object.fromEntries(employees.map((e) => [String(e._id), e.name]));
+
+  const assignedEmployeesByOrderId = new Map();
+  for (const a of assignments) {
+    const orderId = orderIdByItemId.get(String(a.orderItemId));
+    if (!orderId) continue;
+    if (!assignedEmployeesByOrderId.has(orderId)) assignedEmployeesByOrderId.set(orderId, []);
+    assignedEmployeesByOrderId.get(orderId).push({
+      employeeId: a.employeeId,
+      employeeName: employeeNameById[String(a.employeeId)] || null,
+      role: a.workflowStep?.step,
+    });
   }
 
   return orders.map((order) => ({
     ...order,
     items: itemsByOrderId.get(String(order._id)) || [],
+    assignedEmployees: assignedEmployeesByOrderId.get(String(order._id)) || [],
   }));
 };
 

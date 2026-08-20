@@ -49,7 +49,7 @@ export const createOrderItemAssignment = async (tenantId, data, userId, session)
   }
 
   // Employee ownership is re-verified here (not trusted from the caller)
-  // even though bulkAssignEmployees below already resolves employees from a
+  // even though syncOrderAssignments below already resolves employees from a
   // tenant-scoped query — this function is also called directly via
   // POST /order-item-assignment, so it must stand on its own.
   const employee = await Employee.findOne({
@@ -86,25 +86,46 @@ export const createOrderItemAssignment = async (tenantId, data, userId, session)
   return assignment;
 };
 
+// Shared by syncOrderAssignments below — only pending -> in_progress, and
+// only as a direct result of a successful assignment (claude.md section 3/4
+// of this feature): an order already in_progress (more staff being added or
+// removed later) is left as-is, and this is never called for a
+// completed/delivered/cancelled order since callers reject those earlier.
+// Removing every assignment from an in_progress order deliberately does NOT
+// revert it to pending — nothing in the existing workflow supports orders
+// reopening themselves, so that direction is simply never implemented.
+const maybeAdvanceToInProgress = async (order, tenantId, userId, session) => {
+  if (order.productionStatus !== "pending") return false;
+  order.productionStatus = "in_progress";
+  order.updatedBy = userId;
+  await order.save({ session });
+  await OrderItem.updateMany(
+    { orderId: order._id, tenantId, status: "pending" },
+    { status: "in_progress", updatedBy: userId },
+    { session },
+  );
+  return true;
+};
+
 // Owner/authorized-employee entry point for "Assign Employees" on an order —
-// the ONLY place that both (a) creates OrderItemAssignments for potentially
-// several (orderItem, workflowStep, employee) tuples in one request and
+// the single place that (a) reconciles a flat list of employeeIds against
+// whoever is currently assigned (adds new ones, removes unchecked ones,
+// leaves the rest untouched — no duplicate records for the same step) and
 // (b) advances the order pending -> in_progress as a direct, atomic
-// consequence of a successful assignment (see claude.md section 3 of this
-// feature: only pending may auto-advance, completed/delivered/cancelled
-// orders are never touched here).
+// consequence, per claude.md sections 4/14 of this feature.
 //
-// `assignments` is an explicit list of { orderItemId, sequence, employeeId,
-// notes? } tuples rather than a flat employeeId list — an order can contain
-// multiple OrderItems (multiple products), each with its own workflow, so
-// the caller (frontend) resolves which employee fills which item's step
-// before calling this; the backend then re-validates every tuple exactly
-// the same way the single-assignment endpoint does (tenant + skill match),
-// never trusting that the frontend's matching was correct.
-export const bulkAssignEmployees = async (tenantId, orderId, assignments, userId) => {
-  if (!Array.isArray(assignments) || assignments.length === 0) {
-    throw new AppError("assignments must be a non-empty array", 400);
+// A flat employeeId list (not caller-specified workflow steps) is what the
+// Assign Employees modal now sends — an order can span multiple OrderItems
+// (multiple products), each with its own workflow, so THIS function does the
+// (employee -> which open step) matching server-side by skill, the same way
+// createOrderItemAssignment already validates a single tuple; the frontend
+// never gets to say "trust me, put them on step 3."
+export const syncOrderAssignments = async (tenantId, orderId, employeeIds, userId) => {
+  if (!Array.isArray(employeeIds)) {
+    throw new AppError("employeeIds must be an array", 400);
   }
+  // Dedupe — the same employee checked once must not be processed twice.
+  const requestedIds = [...new Set(employeeIds.map(String))];
 
   const session = await mongoose.startSession();
   try {
@@ -114,45 +135,121 @@ export const bulkAssignEmployees = async (tenantId, orderId, assignments, userId
     if (!order) throw new AppError("Order not found", 404);
     if (["completed", "delivered", "cancelled"].includes(order.productionStatus)) {
       throw new AppError(
-        `Order is already ${order.productionStatus} — employees can no longer be assigned`,
+        `Order is already ${order.productionStatus} — employee assignments can no longer be changed`,
         409,
       );
     }
 
-    const created = [];
-    for (const entry of assignments) {
-      const orderItem = await OrderItem.findOne({
-        _id: entry.orderItemId,
-        tenantId,
-        orderId,
-      }).session(session);
-      if (!orderItem) {
-        throw new AppError("Order item not found on this order", 404);
+    const items = await OrderItem.find({ orderId, tenantId }).session(session);
+    const itemIds = items.map((i) => i._id);
+    if (itemIds.length === 0) {
+      throw new AppError("Order has no items to assign employees to", 400);
+    }
+
+    // Every requested employee must actually belong to this tenant — never
+    // trust that an id the frontend sent is real or in-tenant, even though
+    // the frontend only ever offers its own tenant's employees to pick from.
+    const requestedEmployees = requestedIds.length
+      ? await Employee.find({
+          _id: { $in: requestedIds },
+          tenantId,
+          isDeleted: false,
+        }).session(session)
+      : [];
+    if (requestedEmployees.length !== requestedIds.length) {
+      throw new AppError("One or more selected employees were not found for this tenant", 404);
+    }
+    const employeeById = new Map(requestedEmployees.map((e) => [String(e._id), e]));
+
+    const existingAssignments = await OrderItemAssignment.find({
+      orderItemId: { $in: itemIds },
+      tenantId,
+      status: { $ne: "reassigned" },
+    }).session(session);
+    const existingByEmployeeId = new Map(
+      existingAssignments.map((a) => [String(a.employeeId), a]),
+    );
+
+    // Remove first — an unchecked employee's step becomes open again in the
+    // SAME pass an incoming employee might need it (e.g. swapping the Tailor
+    // from Ahmed to Ali in one save).
+    const toRemove = existingAssignments.filter((a) => !requestedIds.includes(String(a.employeeId)));
+    for (const assignment of toRemove) {
+      await OrderItemAssignment.deleteOne({ _id: assignment._id, tenantId }, { session });
+    }
+
+    const productTypeIds = [...new Set(items.map((i) => String(i.productTypeId)))];
+    const productTypes = await ProductType.find({
+      _id: { $in: productTypeIds },
+      tenantId,
+    }).session(session);
+    const workflowByProductTypeId = new Map(productTypes.map((pt) => [String(pt._id), pt.workflow]));
+
+    // Steps still occupied after removals (an existing employee who stayed
+    // checked keeps their step) — additions must never double-book one.
+    const occupiedStepKeys = new Set(
+      existingAssignments
+        .filter((a) => requestedIds.includes(String(a.employeeId)))
+        .map((a) => `${a.orderItemId}-${a.workflowStep.sequence}`),
+    );
+
+    // Every still-open (item, step) pair, independent of which employee ends
+    // up filling it — computed once so each candidate can be scored against
+    // the same snapshot before any of them claims one.
+    const openStepCandidates = [];
+    for (const item of items) {
+      const workflow = workflowByProductTypeId.get(String(item.productTypeId)) || [];
+      for (const step of [...workflow].sort((a, b) => a.sequence - b.sequence)) {
+        const key = `${item._id}-${step.sequence}`;
+        if (!occupiedStepKeys.has(key)) openStepCandidates.push({ item, step, key });
       }
-      const assignment = await createOrderItemAssignment(tenantId, entry, userId, session);
+    }
+
+    const created = [];
+    const toAdd = requestedIds.filter((id) => !existingByEmployeeId.has(id));
+    // Most-constrained-first: an employee with only one matching skill (e.g.
+    // "Cutting" only) is placed before a broadly-skilled one (e.g. a lead
+    // tailor who can do everything) — otherwise the generalist greedily
+    // claims the one step the specialist actually needed, and a perfectly
+    // valid selection gets rejected for no real reason. Ties keep the
+    // caller's original order (stable sort) so behavior stays predictable.
+    const matchCount = (employeeId) => {
+      const employee = employeeById.get(employeeId);
+      return openStepCandidates.filter((c) => employee.skills.includes(c.step.requiredSkill)).length;
+    };
+    const orderedToAdd = toAdd
+      .map((id, index) => ({ id, index, count: matchCount(id) }))
+      .sort((a, b) => a.count - b.count || a.index - b.index)
+      .map((e) => e.id);
+
+    for (const employeeId of orderedToAdd) {
+      const employee = employeeById.get(employeeId);
+      const matchIndex = openStepCandidates.findIndex((c) => employee.skills.includes(c.step.requiredSkill));
+      if (matchIndex === -1) {
+        throw new AppError(
+          `${employee.name} has no matching open production step on this order (check their skills)`,
+          400,
+        );
+      }
+      const [matched] = openStepCandidates.splice(matchIndex, 1);
+      const assignment = await createOrderItemAssignment(
+        tenantId,
+        { orderItemId: matched.item._id, sequence: matched.step.sequence, employeeId },
+        userId,
+        session,
+      );
       created.push(assignment);
     }
 
-    // Only pending -> in_progress, and only as a direct result of this
-    // successful assignment — an order already in_progress (more staff being
-    // added later) is left as-is, and completed/delivered/cancelled were
-    // already rejected above.
-    let statusChanged = false;
-    if (order.productionStatus === "pending") {
-      order.productionStatus = "in_progress";
-      order.updatedBy = userId;
-      await order.save({ session });
-      statusChanged = true;
-
-      await OrderItem.updateMany(
-        { orderId, tenantId, status: "pending" },
-        { status: "in_progress", updatedBy: userId },
-        { session },
-      );
-    }
+    const statusChanged = await maybeAdvanceToInProgress(order, tenantId, userId, session);
 
     await session.commitTransaction();
-    return { order, assignments: created, statusChanged };
+    return {
+      order,
+      added: created.length,
+      removed: toRemove.length,
+      statusChanged,
+    };
   } catch (err) {
     await session.abortTransaction();
     throw err;

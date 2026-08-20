@@ -87,20 +87,22 @@ export const deleteOrderItemAssignment = async (req, res) => {
   }
 };
 
-export const bulkAssignEmployees = async (req, res) => {
+// Assign Employees on an order — reconciles the full requested employeeIds
+// list against whoever is currently assigned (adds/removes as needed).
+export const syncOrderAssignments = async (req, res) => {
   try {
     const { orderId } = req.params;
     if (!isValidObjectId(orderId)) {
       throw new AppError("Invalid order ID format", 400);
     }
-    const { assignments } = req.body;
-    const result = await OrderItemAssignmentService.bulkAssignEmployees(
+    const { employeeIds } = req.body;
+    const result = await OrderItemAssignmentService.syncOrderAssignments(
       req.user.tenantId,
       orderId,
-      assignments,
+      employeeIds,
       req.user.userId,
     );
-    return res.status(201).json({
+    return res.status(200).json({
       message: result.statusChanged
         ? "Employees assigned — order moved to In Progress."
         : "Employees assigned successfully.",
