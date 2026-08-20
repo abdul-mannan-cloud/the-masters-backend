@@ -7,6 +7,7 @@ import Order from "../Models/Order.js";
 import OrderItem from "../Models/OrderItem.js";
 import Payment from "../Models/Payment.js";
 import OrderItemAssignment from "../Models/OrderItemAssignment.js";
+import { attachAssignedEmployees } from "./OrderService.js";
 
 export const getSuperAdminStats = async () => {
   const [
@@ -65,7 +66,11 @@ export const getTenantOwnerStats = async (tenantId) => {
       { $match: { tenantId: tenantObjectId, paymentDate: { $gte: startOfMonth } } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
-    Order.find({ tenantId }).sort({ createdAt: -1 }).limit(10).populate("customerId", "name phone"),
+    Order.find({ tenantId })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate("customerId", "name phone")
+      .lean(),
   ]);
 
   return {
@@ -75,7 +80,7 @@ export const getTenantOwnerStats = async (tenantId) => {
     completedOrders,
     pendingOrders,
     monthlyRevenue: revenueResult[0]?.total ?? 0,
-    recentOrders,
+    recentOrders: await attachAssignedEmployees(tenantId, recentOrders),
   };
 };
 

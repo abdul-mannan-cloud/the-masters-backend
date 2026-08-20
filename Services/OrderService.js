@@ -43,35 +43,22 @@ const generateOrderNumber = async (tenantId, customer, session) => {
   return `${customer.customerNumber}-${sequence}`;
 };
 
-// Each order comes back with a lightweight `items` summary (just garment
-// names) for the Orders list page's "Ordered Items" column — one extra
-// batched query for every OrderItem across the whole result page, not one
-// query per order, so this stays cheap regardless of how many orders match.
-export const listOrders = async (tenantId, filters = {}) => {
-  const query = { tenantId };
-  if (filters.productionStatus) query.productionStatus = filters.productionStatus;
-  if (filters.paymentStatus) query.paymentStatus = filters.paymentStatus;
-  if (filters.customerId) query.customerId = filters.customerId;
-
-  const orders = await Order.find(query).sort({ createdAt: -1 }).lean();
+// Attaches an `assignedEmployees` summary ([{employeeId, employeeName,
+// role}]) to each of the given orders — one batched query across every
+// OrderItem/OrderItemAssignment for the whole list, not one per order, so
+// this stays cheap regardless of how many orders are passed in. Shared by
+// listOrders (Orders list page) and DashboardService.getTenantOwnerStats
+// (Owner Dashboard's Recent Orders), so both read the exact same "who's
+// assigned" data and can never drift out of sync with each other.
+export const attachAssignedEmployees = async (tenantId, orders) => {
   if (orders.length === 0) return orders;
 
   const orderIds = orders.map((o) => o._id);
-  const items = await OrderItem.find({ orderId: { $in: orderIds }, tenantId })
-    .select("orderId garmentType")
-    .sort({ createdAt: 1 });
+  const items = await OrderItem.find({ orderId: { $in: orderIds }, tenantId }).select(
+    "orderId",
+  );
+  const orderIdByItemId = new Map(items.map((i) => [String(i._id), String(i.orderId)]));
 
-  const itemsByOrderId = new Map();
-  const orderIdByItemId = new Map();
-  for (const item of items) {
-    const key = String(item.orderId);
-    if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
-    itemsByOrderId.get(key).push({ _id: item._id, garmentType: item.garmentType });
-    orderIdByItemId.set(String(item._id), key);
-  }
-
-  // Assigned-employee summary for the Orders list ("Ahmed (Tailor), Ali
-  // (Cutter)...") — same batched-not-per-row query shape as `items` above.
   const itemIds = items.map((i) => i._id);
   const assignments = itemIds.length
     ? await OrderItemAssignment.find({
@@ -100,9 +87,41 @@ export const listOrders = async (tenantId, filters = {}) => {
 
   return orders.map((order) => ({
     ...order,
-    items: itemsByOrderId.get(String(order._id)) || [],
     assignedEmployees: assignedEmployeesByOrderId.get(String(order._id)) || [],
   }));
+};
+
+// Each order comes back with a lightweight `items` summary (just garment
+// names) for the Orders list page's "Ordered Items" column — one extra
+// batched query for every OrderItem across the whole result page, not one
+// query per order, so this stays cheap regardless of how many orders match.
+export const listOrders = async (tenantId, filters = {}) => {
+  const query = { tenantId };
+  if (filters.productionStatus) query.productionStatus = filters.productionStatus;
+  if (filters.paymentStatus) query.paymentStatus = filters.paymentStatus;
+  if (filters.customerId) query.customerId = filters.customerId;
+
+  const orders = await Order.find(query).sort({ createdAt: -1 }).lean();
+  if (orders.length === 0) return orders;
+
+  const orderIds = orders.map((o) => o._id);
+  const items = await OrderItem.find({ orderId: { $in: orderIds }, tenantId })
+    .select("orderId garmentType")
+    .sort({ createdAt: 1 });
+
+  const itemsByOrderId = new Map();
+  for (const item of items) {
+    const key = String(item.orderId);
+    if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
+    itemsByOrderId.get(key).push({ _id: item._id, garmentType: item.garmentType });
+  }
+
+  const ordersWithItems = orders.map((order) => ({
+    ...order,
+    items: itemsByOrderId.get(String(order._id)) || [],
+  }));
+
+  return attachAssignedEmployees(tenantId, ordersWithItems);
 };
 
 export const getOrderById = async (tenantId, id) => {

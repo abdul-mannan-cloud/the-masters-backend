@@ -37,6 +37,7 @@ export const generateAlerts = async (tenantId) => {
     generateLowInventoryAlerts(tenantId),
     generateDeliveryAlerts(tenantId),
     generatePaymentAlerts(tenantId),
+    generateUnassignedOrderAlerts(tenantId),
   ]);
 };
 
@@ -169,6 +170,73 @@ const generatePaymentAlerts = async (tenantId) => {
   }
 };
 
+// An order with nobody assigned can't actually go into production — the
+// owner needs to know it's stuck. Covers both a brand-new pending order
+// (the normal starting state, before anyone's had a chance to staff it) and
+// the less obvious case of an in_progress order that had every employee
+// removed via the Assign Employees modal (status intentionally doesn't
+// revert to pending when that happens — see
+// OrderItemAssignmentService.maybeAdvanceToInProgress — so this alert is the
+// only place that gap becomes visible again).
+const generateUnassignedOrderAlerts = async (tenantId) => {
+  const orders = await Order.find({
+    tenantId,
+    productionStatus: { $in: ACTIVE_DELIVERY_STATUSES },
+  });
+  const unassignedIds = new Set();
+
+  if (orders.length) {
+    const orderIds = orders.map((o) => o._id);
+    const items = await OrderItem.find({ tenantId, orderId: { $in: orderIds } }).select(
+      "_id orderId",
+    );
+    const orderIdByItemId = new Map(items.map((i) => [String(i._id), String(i.orderId)]));
+    const itemIds = items.map((i) => i._id);
+    const assignments = itemIds.length
+      ? await OrderItemAssignment.find({
+          tenantId,
+          orderItemId: { $in: itemIds },
+          status: { $ne: "reassigned" },
+        }).select("orderItemId")
+      : [];
+    const assignedOrderIds = new Set(
+      assignments.map((a) => orderIdByItemId.get(String(a.orderItemId))).filter(Boolean),
+    );
+
+    const customers = await Customer.find({
+      _id: { $in: orders.map((o) => o.customerId) },
+      tenantId,
+    }).select("name");
+    const customerNameById = Object.fromEntries(customers.map((c) => [String(c._id), c.name]));
+
+    for (const order of orders) {
+      if (assignedOrderIds.has(String(order._id))) continue;
+      unassignedIds.add(String(order._id));
+
+      await Alert.findOneAndUpdate(
+        { tenantId, type: "assignment", relatedEntityType: "Order", relatedEntityId: order._id },
+        {
+          $set: {
+            title: "Unassigned Order",
+            message: `Order #${order.orderNumber} for ${customerNameById[String(order.customerId)] || "a customer"} has no employee assigned.`,
+            priority: order.productionStatus === "in_progress" ? "high" : "medium",
+          },
+          $setOnInsert: { tenantId, type: "assignment", relatedEntityType: "Order", relatedEntityId: order._id, isRead: false },
+        },
+        { upsert: true },
+      );
+    }
+  }
+
+  const existing = await Alert.find({ tenantId, type: "assignment" }).select("relatedEntityId");
+  const staleIds = existing
+    .map((a) => String(a.relatedEntityId))
+    .filter((id) => !unassignedIds.has(id));
+  if (staleIds.length) {
+    await Alert.deleteMany({ tenantId, type: "assignment", relatedEntityId: { $in: staleIds } });
+  }
+};
+
 // Owner/tenant_admin see every alert. An employee only sees a category if
 // they hold the matching existing permission (inventory.view, payments.view)
 // — reusing the existing Role permission grid rather than inventing an
@@ -191,6 +259,10 @@ const filterForEmployee = async (tenantId, employeeId, alerts) => {
     inventory: permissions?.inventory?.view === true,
     payment: permissions?.payments?.view === true,
     delivery: permissions?.orders?.view === true,
+    // Staffing is a management concern — only shown to an employee who could
+    // actually act on it (the same permission the Assign Employees action
+    // itself requires), not every employee with plain view access.
+    assignment: permissions?.orders?.update === true,
   };
 
   const deliveryAlerts = alerts.filter((a) => a.type === "delivery" && canSee.delivery);
@@ -222,6 +294,7 @@ const filterForEmployee = async (tenantId, employeeId, alerts) => {
     if (a.type === "inventory") return canSee.inventory;
     if (a.type === "payment") return canSee.payment;
     if (a.type === "delivery") return canSee.delivery && assignedOrderIds.has(String(a.relatedEntityId));
+    if (a.type === "assignment") return canSee.assignment;
     return false;
   });
 };

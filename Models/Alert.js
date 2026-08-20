@@ -15,7 +15,7 @@ const alertSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["inventory", "delivery", "payment"],
+      enum: ["inventory", "delivery", "payment", "assignment"],
       required: true,
     },
     title: {
