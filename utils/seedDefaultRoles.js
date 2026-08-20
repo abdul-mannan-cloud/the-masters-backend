@@ -16,12 +16,23 @@ import { buildPermissionsObject } from "./permissions.js";
 // explicitly by the tenant_admin per Role via the Role management UI. Keeps
 // a brand-new employee account from being able to touch business data the
 // moment it's created; access is opt-in, not opt-out.
+//
+// Two exceptions: customers.create and orders.create — front-of-shop staff
+// need to be able to register a walk-in customer and place their order as
+// core day-to-day work, not an opt-in extra. Creating an order already
+// covers capturing new measurements for it (CustomerService/OrderItemService
+// take measurements in the same request, gated only by the outer
+// customers.create/orders.create check — there's no separate
+// measurements.create call in that path), so no other module needs a
+// matching create grant for this to work end to end.
 const employeePermissions = buildPermissionsObject(false);
 employeePermissions.dashboard.view = true;
 employeePermissions.customers.view = true;
+employeePermissions.customers.create = true;
 employeePermissions.measurements.view = true;
 employeePermissions.productTypes.view = true;
 employeePermissions.orders.view = true;
+employeePermissions.orders.create = true;
 employeePermissions.employees.view = true;
 employeePermissions.payments.view = true;
 employeePermissions.inventory.view = true;

@@ -45,3 +45,37 @@ export const backfillEmployeeRolePermissions = async () => {
     );
   }
 };
+
+// Follow-up migration: the read-only "Employee" default above now also
+// grants customers.create/orders.create (see seedDefaultRoles.js — front-
+// of-shop staff need to register customers and place orders as core work,
+// not an opt-in extra). Existing tenants already have an "Employee" Role
+// seeded with the read-only-only template from the migration above — this
+// upgrades ONLY Roles that still exactly match that template, same
+// "leave any tenant_admin customization alone" rule as before.
+const WITH_CREATE_ACCESS = buildPermissionsObject(false);
+WITH_CREATE_ACCESS.dashboard.view = true;
+WITH_CREATE_ACCESS.customers.view = true;
+WITH_CREATE_ACCESS.customers.create = true;
+WITH_CREATE_ACCESS.measurements.view = true;
+WITH_CREATE_ACCESS.productTypes.view = true;
+WITH_CREATE_ACCESS.orders.view = true;
+WITH_CREATE_ACCESS.orders.create = true;
+WITH_CREATE_ACCESS.employees.view = true;
+WITH_CREATE_ACCESS.payments.view = true;
+WITH_CREATE_ACCESS.inventory.view = true;
+
+export const backfillEmployeeCreateAccess = async () => {
+  const candidates = await Role.collection.find({ name: "Employee" }).toArray();
+
+  for (const doc of candidates) {
+    const matchesReadOnlyDefault =
+      JSON.stringify(doc.permissions) === JSON.stringify(NEW_EMPLOYEE_PERMISSIONS);
+    if (!matchesReadOnlyDefault) continue;
+
+    await Role.collection.updateOne(
+      { _id: doc._id },
+      { $set: { permissions: WITH_CREATE_ACCESS } },
+    );
+  }
+};
